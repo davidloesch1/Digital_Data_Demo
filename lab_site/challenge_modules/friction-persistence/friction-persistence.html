@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Session verification | Nexus Research</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../css/friction-challenge.css">
+    <script>window.NEXUS_WORKER_PATH = "../../worker.js";</script>
+</head>
+<body>
+    <header class="fp-header">
+        <a class="fp-back" href="../../index.html">← Nexus<span class="text-primary">Research</span></a>
+        <h1 class="fp-header__title">Session verification</h1>
+        <span class="fp-id" id="session-id">#----</span>
+    </header>
+
+    <main class="fp-main">
+        <div id="phase-brief" class="fp-phase">
+            <p class="fp-kicker">One quick step</p>
+            <h2 class="fp-hero fp-hero--intro">Before we show your run summary, we will secure this browser session. This is routine and only takes a moment.</h2>
+            <p class="fp-lead">The next screens may pause briefly while we check compatibility with our lab infrastructure—similar to a normal save or sync. You can still complete everything.</p>
+            <button type="button" class="fp-btn" id="btn-brief">Continue</button>
+            <button type="button" class="fp-skip" id="skip-brief">Skip to result summary (optional)</button>
+        </div>
+
+        <div id="phase-s1" class="fp-phase" hidden>
+            <p class="fp-badge">Step 1 of 3</p>
+            <h2 class="fp-hero fp-hero--step fp-hero--stepspace">Save to your run</h2>
+            <p class="fp-lead fp-lead--tight-1">Please confirm to sync your current lab progress with our servers. You may see a short wait—this is expected on first save.</p>
+            <div class="fp-panel">
+                <div id="s1-working" class="fp-working" hidden>
+                    <div class="fp-spinner" aria-hidden="true"></div>
+                    <span>Working&hellip;</span>
+                </div>
+                <button type="button" class="fp-btn" id="btn-s1">Save and continue</button>
+            </div>
+            <button type="button" class="fp-skip" id="skip-s1">Skip to result summary (optional)</button>
+        </div>
+
+        <div id="phase-s2" class="fp-phase" hidden>
+            <p class="fp-badge">Step 2 of 3</p>
+            <h2 class="fp-hero fp-hero--step fp-hero--stepspace">Waiting on the network</h2>
+            <div class="fp-panel fp-panel--hiccup">
+                <p class="fp-lead fp-mute-tight">We could not complete that in one go. <strong>Retrying automatically&hellip;</strong></p>
+                <p class="fp-hint fp-hiccup-sub">This sometimes happens on busy shared networks. No action is required; the next step will open when ready.</p>
+            </div>
+            <p class="fp-hint fp-standby">Stand by.</p>
+            <button type="button" class="fp-skip" id="skip-s2">Skip to result summary (optional)</button>
+        </div>
+
+        <div id="phase-s3" class="fp-phase" hidden>
+            <p class="fp-badge">Step 3 of 3</p>
+            <h2 class="fp-hero fp-hero--step">Confirm the word on screen</h2>
+            <p class="fp-lead fp-s3-instruct">A simple typographic check helps our systems make sure a human is in control. Type the word in <strong>all capitals</strong>:</p>
+            <p class="fp-verify-mono" aria-hidden="true">VERIFY</p>
+            <form id="form-verify" autocomplete="off" novalidate>
+                <label for="input-verify" class="fp-label-sm">Your entry</label>
+                <input class="fp-input" id="input-verify" name="v" type="text" inputmode="text" autocapitalize="characters" placeholder="Type VERIFY" aria-describedby="verify-err" autocomplete="off" aria-label="Type the word VERIFY">
+                <p class="fp-input-err" id="verify-err" role="alert" aria-live="polite"></p>
+                <button type="submit" class="fp-btn fp-btn-tight" id="btn-verify">Submit and continue</button>
+            </form>
+            <button type="button" class="fp-skip" id="skip-s3">Skip to result summary (optional)</button>
+        </div>
+
+        <div id="phase-s4" class="fp-phase" hidden>
+            <p class="fp-badge">Almost done</p>
+            <h2 class="fp-hero fp-hero--step fp-hero--stepspace">Final save</h2>
+            <p class="fp-lead">This last action finishes your run and builds the result payload your dashboard can use when connected.</p>
+            <div id="s4-working" class="fp-working s4-working-row" hidden>
+                <div class="fp-spinner" aria-hidden="true"></div>
+                <span>Finalizing&hellip;</span>
+            </div>
+            <button type="button" class="fp-btn fp-btn-s4" id="btn-finish">Finish and view result</button>
+            <p class="fp-hint fp-nudge-hint">The button may nudge once when you first aim at it—if so, you can still click; this mirrors occasional UI drift in real software.</p>
+            <button type="button" class="fp-skip" id="skip-s4">Skip to result summary (optional)</button>
+        </div>
+
+        <div id="phase-done" class="fp-phase" hidden>
+            <p class="fp-badge fp-badge--win">Run complete</p>
+            <h2 class="fp-hero fp-hero--done">Your session verification pass is on file</h2>
+            <p class="fp-lead">The JSON below is for your analysis pipeline. Connect the summary service on the results dashboard to merge sessions and cohorts.</p>
+            <a class="fp-dboard" href="../../dashboard.html">Open results dashboard</a>
+            <a class="fp-link-home" href="../../index.html">Back to all challenges</a>
+            <div class="fp-diagnostics" id="friction-diagnostics" aria-label="Diagnostics"></div>
+        </div>
+    </main>
+    <div id="dev-status" aria-hidden="true">AI: &hellip;</div>
+    <script src="../../js/behavioral-service.js"></script>
+    <script src="../../js/friction-challenge.js"></script>
+</body>
+</html>

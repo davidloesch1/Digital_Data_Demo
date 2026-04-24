@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675" role="img" aria-label="A fast digit and two choice buttons, stylized as a speed check">
+  <defs>
+    <linearGradient id="s-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e0e7ff"/>
+      <stop offset="0.4" stop-color="#eef2ff"/>
+      <stop offset="1" stop-color="#f8fafc"/>
+    </linearGradient>
+    <linearGradient id="s-arc" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4f46e5"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="675" fill="url(#s-bg)"/>
+  <!-- Stimulus + split choices -->
+  <rect x="440" y="200" width="320" height="200" rx="12" fill="#fff" stroke="#c7d2fe" stroke-width="1.4" filter="drop-shadow(0 2px 10px rgba(79,70,229,0.08))"/>
+  <text x="600" y="305" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="72" font-weight="800" fill="#0f172a" font-feature-settings="tnum">4</text>
+  <g fill="none" stroke="#6366f1" stroke-width="0.7" stroke-linecap="round" opacity="0.4">
+    <line x1="500" y1="335" x2="700" y2="335"/>
+  </g>
+  <g>
+    <rect x="360" y="400" width="200" height="64" rx="8" fill="#f8fafc" stroke="#a5b4fc" stroke-width="1.5"/>
+    <text x="460" y="444" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#4f46e5">Odd</text>
+    <rect x="640" y="400" width="200" height="64" rx="8" fill="#eef2ff" stroke="#4f46e5" stroke-width="2"/>
+    <text x="740" y="444" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="18" font-weight="700" fill="#4f46e5">Even</text>
+  </g>
+  <!-- small arc = pace -->
+  <path d="M 200 500 A 100 100 0 0 1 400 500" fill="none" stroke="url(#s-arc)" stroke-width="6" stroke-linecap="round" opacity="0.65"/>
+  <text x="600" y="550" text-anchor="middle" font-family="ui-sans-serif,system-ui,sans-serif" font-size="14" font-weight="600" fill="#64748b" letter-spacing="0.2em" text-transform="uppercase">Speed and accuracy</text>
+</svg>

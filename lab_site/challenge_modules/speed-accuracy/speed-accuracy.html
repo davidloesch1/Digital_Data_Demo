@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speed &amp; accuracy lab | Nexus Research</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../css/speed-challenge.css">
+    <script>window.NEXUS_WORKER_PATH = "../../worker.js";</script>
+</head>
+<body>
+    <header class="sa-header">
+        <a class="sa-back" href="../../index.html">← Nexus<span class="text-primary">Research</span></a>
+        <h1 class="sa-header__title">Speed &amp; accuracy lab</h1>
+        <span class="sa-id" id="session-id">#----</span>
+    </header>
+
+    <main class="sa-main">
+        <div id="phase-brief" class="sa-phase">
+            <p class="sa-kicker">Quick check</p>
+            <h2 class="sa-hero">A dozen fast number judgments</h2>
+            <p class="sa-lead">You&rsquo;ll see single digits, one at a time. For each, tap <strong>Odd</strong> or <strong>Even</strong> as <em>fast</em> and <em>accurate</em> as you can. Keyboard: <span class="sa-mono">1</span> = odd, <span class="sa-mono">2</span> = even (when the task is active).</p>
+            <p class="sa-hint sa-hint--brief">The lab uses response time and error rate to describe how you balance speed and care—not as a medical measure.</p>
+            <button type="button" class="sa-btn" id="btn-brief">Start task</button>
+            <button type="button" class="sa-skip" id="skip-brief">Skip to result summary (optional)</button>
+        </div>
+
+        <div id="phase-run" class="sa-phase" hidden>
+            <p class="sa-progress" id="sa-trial-label" role="status" aria-live="polite">Ready</p>
+            <div class="sa-stimulus-wrap" aria-hidden="false">
+                <p class="sa-stimulus" id="sa-stimulus" aria-label="Number to classify">&nbsp;</p>
+            </div>
+            <div class="sa-actions" id="sa-actions" role="group" aria-label="Is the number odd or even?">
+                <button type="button" class="sa-choice sa-choice--left" id="btn-odd" data-odd="1" disabled>Odd</button>
+                <button type="button" class="sa-choice sa-choice--right" id="btn-even" data-odd="0" disabled>Even</button>
+            </div>
+        </div>
+
+        <div id="phase-done" class="sa-phase" hidden>
+            <p class="sa-badge sa-badge--win">Run complete</p>
+            <h2 class="sa-hero sa-hero--done">Your speed&ndash;accuracy pass is on file</h2>
+            <p class="sa-lead">The JSON below is for your analysis pipeline. You can also open the results dashboard to merge with other runs.</p>
+            <a class="sa-dboard" href="../../dashboard.html">Open results dashboard</a>
+            <a class="sa-link-home" href="../../index.html">Back to all challenges</a>
+            <div class="sa-diagnostics" id="sa-diagnostics" aria-label="Diagnostics"></div>
+        </div>
+    </main>
+    <div id="dev-status" aria-hidden="true">AI: &hellip;</div>
+    <script src="../../js/behavioral-service.js"></script>
+    <script src="../../js/speed-challenge.js"></script>
+</body>
+</html>

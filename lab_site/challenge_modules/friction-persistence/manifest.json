@@ -1,0 +1,19 @@
+{
+  "id": "friction-persistence",
+  "name": "Friction & persistence lab",
+  "version": "0.1.0",
+  "status": "live",
+  "implementation": "challenge_modules/friction-persistence/friction-persistence.html",
+  "summary": "Boring 'session verification' copy: working delays, a benign auto-retry screen, type VERIFY, then a final wait with a one-time button nudge. Optional skip to results on every step.",
+  "profileFocus": [
+    "persistence",
+    "latency_tolerance",
+    "reaction_to_recoverable_error"
+  ],
+  "labels": ["FRICTION", "FRICTION_S1", "FRICTION_S2", "FRICTION_S3", "FRICTION_S4", "FRICTION_DONE"],
+  "caps": {
+    "s1MaxMs": 1600,
+    "s2MaxMs": 2000,
+    "finalizeMaxMs": 2200
+  }
+}

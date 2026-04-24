@@ -3,8 +3,10 @@
  * Handles AI Worker and Network Interception
  */
 const BehavioralService = (function() {
-    // Initialize the AI Worker [cite: 86]
-    const worker = new Worker('worker.js');
+    // Worker URL: pages under subfolders set window.NEXUS_WORKER_PATH to reach lab root (e.g. "../../worker.js")
+    const worker = new Worker(
+        (typeof window !== "undefined" && window.NEXUS_WORKER_PATH) || "worker.js"
+    );
 
     // Intercept FullStory Network Bundles [cite: 83]
     const oldSend = XMLHttpRequest.prototype.send;

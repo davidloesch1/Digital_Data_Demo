@@ -1,0 +1,23 @@
+{
+  "id": "social-risk",
+  "name": "Social & risk lab",
+  "version": "0.1.0",
+  "status": "live",
+  "implementation": "challenge_modules/social-risk/social-risk.html",
+  "summary": "Fictional PDP: 4 product SVGs + gallery, buy box, trust row, review snippets, expanders, live est. total, pre-checked add-ons, mobile sticky bar. v2 JSON adds productGallery and estimatedOrderTotalDemo.",
+  "profileFocus": [
+    "social_proof",
+    "risk_cues",
+    "default_acceptance"
+  ],
+  "labels": [
+    "SR_RUN", "SR_SKIP", "SR_REVIEW",
+    "SR_SECT_W", "SR_SECT_P", "SR_SECT_PRICE", "SR_SECT_R",
+    "SR_GALL_1", "SR_GALL_2", "SR_GALL_3", "SR_GALL_4",
+    "SR_CHK_WON", "SR_CHK_WOFF", "SR_CHK_TON", "SR_CHK_TOFF",
+    "SR_SUBMIT", "SR_DONE"
+  ],
+  "caps": {
+    "fictionalOnly": true
+  }
+}

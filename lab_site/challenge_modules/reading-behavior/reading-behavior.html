@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reading & retention lab | Nexus Research</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../css/reading-challenge.css">
+    <script>
+        window.NEXUS_WORKER_PATH = "../../worker.js";
+    </script>
+</head>
+<body>
+    <header class="rc-header">
+        <a class="rc-back" href="../../index.html">← Nexus<span class="accent">Research</span></a>
+        <p class="rc-header__title">Reading & retention lab</p>
+        <span class="rc-header__id" id="session-id">#----</span>
+    </header>
+
+    <main class="rc-main" id="read-root">
+        <div id="phase-brief" class="rc-phase">
+            <span class="rc-badge">How we read</span>
+            <h1>Read, then show what you remember</h1>
+            <p class="rc-lead">You will read a short fictional case summary, then answer a few questions. This exercise helps us study <strong>attention</strong> (where time goes) and <strong>retention</strong> (what you recall)—together with coarse pointer and scroll behavior during the read phase, in aggregate. No outside knowledge is required; everything is in the passage.</p>
+            <button type="button" class="rc-btn" id="btn-start-read">Start reading</button>
+        </div>
+
+        <div id="phase-read" class="rc-phase" hidden>
+            <p class="rc-lead rc-lead--tight">Use your normal scrolling. When you are finished, continue to the questions. Do not use other tabs or look up answers.</p>
+            <div class="rc-article" id="article-scroll" aria-label="Case study article">
+                <h1>How Meridian Co. Rethought Onboarding (2021 Case Summary)</h1>
+                <p class="rc-byline">Internal research brief · Fictional scenario for research purposes</p>
+                <section class="rc-section" id="section-s1" data-section="s1">
+                    <h2>1 · Context</h2>
+                    <p>Meridian Co. is a B2B software firm that found new customers abandoning a long “activation” form mid-way. Before changes, the median time people spent in onboarding was about <strong>12 minutes</strong>, and many never returned.</p>
+                </section>
+                <section class="rc-section" id="section-s2" data-section="s2">
+                    <h2>2 · The program and outcomes</h2>
+                    <p>Over <strong>14 weeks</strong>, a cross-functional team redesigned the flow, capped any single work session at <strong>20 minutes</strong> with a gentle “resume later” prompt, and reordered a few high-friction steps.</p>
+                    <p>Completion of the flow moved from <strong>31% to 64% in the third quarter</strong> of the year after the redesign; support tickets related to onboarding also dropped, though the brief does not list an exact percent.</p>
+                </section>
+                <section class="rc-section" id="section-s3" data-section="s3">
+                    <h2>3 · What the lead researcher said</h2>
+                    <p>According to the write-up, lead researcher <strong>Dr. Elias Renn</strong> said the <strong>single most effective</strong> change was not a new color palette or shorter videos—it was <strong>splitting the main form across two days</strong> so people never faced one marathon block.</p>
+                </section>
+                <section class="rc-section" id="section-s4" data-section="s4">
+                    <h2>4 · Limitations</h2>
+                    <p>The case study was limited to <strong>North American</strong> customers and only organizations with <strong>fewer than 200 employees</strong>. A follow-up was planned for 18 months later, but that wave was still in the field when this note was published.</p>
+                </section>
+            </div>
+            <div class="rc-cta">
+                <button type="button" class="rc-btn" id="btn-to-quiz">I’m done reading — go to questions</button>
+            </div>
+        </div>
+
+        <div id="phase-quiz" class="rc-phase" hidden>
+            <h1 class="rc-quiz-title">Check your memory</h1>
+            <p class="rc-lead rc-lead--tight">Answer from the article only. Best guess is fine for research.</p>
+            <form id="quiz-form" class="rc-form" autocomplete="off">
+                <fieldset>
+                    <legend>1. After the redesign, completion of the onboarding flow in Q3 was reported as</legend>
+                    <label class="rc-opt"><input type="radio" name="q1" value="31" required> 31%</label>
+                    <label class="rc-opt"><input type="radio" name="q1" value="50"> 50%</label>
+                    <label class="rc-opt"><input type="radio" name="q1" value="64"> 64%</label>
+                    <label class="rc-opt"><input type="radio" name="q1" value="12"> 12 minutes</label>
+                </fieldset>
+                <fieldset>
+                    <legend>2. A single work session in the new flow was capped at</legend>
+                    <label class="rc-opt"><input type="radio" name="q2" value="12" required> 12 minutes</label>
+                    <label class="rc-opt"><input type="radio" name="q2" value="20"> 20 minutes</label>
+                    <label class="rc-opt"><input type="radio" name="q2" value="14"> 14 weeks</label>
+                    <label class="rc-opt"><input type="radio" name="q2" value="200"> 200 minutes</label>
+                </fieldset>
+                <fieldset>
+                    <legend>3. Dr. Renn said the <em>most effective</em> change was</legend>
+                    <label class="rc-opt"><input type="radio" name="q3" value="video" required> Shorter product videos</label>
+                    <label class="rc-opt"><input type="radio" name="q3" value="palette"> A new color palette for the form</label>
+                    <label class="rc-opt"><input type="radio" name="q3" value="split"> Splitting the main form across two days</label>
+                    <label class="rc-opt"><input type="radio" name="q3" value="tickets"> Fewer support tickets in onboarding</label>
+                </fieldset>
+                <fieldset>
+                    <legend>4. The study was limited to organizations with</legend>
+                    <label class="rc-opt"><input type="radio" name="q4" value="200" required> Fewer than 200 employees</label>
+                    <label class="rc-opt"><input type="radio" name="q4" value="64"> Fewer than 64 employees</label>
+                    <label class="rc-opt"><input type="radio" name="q4" value="12"> No more than 12 minutes to enroll</label>
+                    <label class="rc-opt"><input type="radio" name="q4" value="20"> A cap of 20% discount</label>
+                </fieldset>
+                <fieldset>
+                    <legend>5. How carefully did you read? (1 = skimmed, 5 = read closely)</legend>
+                    <label class="rc-opt" for="careful">Self-assessment</label>
+                    <select name="careful" id="careful" required>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3" selected>3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                    </select>
+                </fieldset>
+                <fieldset>
+                    <legend>6. How confident are you in your answers? (1–5)</legend>
+                    <select name="confident" id="confident" required>
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3" selected>3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                    </select>
+                </fieldset>
+                <p class="quiz-err" id="quiz-err" hidden>Please answer all questions.</p>
+                <button type="submit" class="rc-btn" id="btn-submit-quiz">See results</button>
+            </form>
+        </div>
+
+        <div id="phase-results" class="rc-phase" hidden>
+            <span class="rc-badge">Results</span>
+            <h1>Retention score</h1>
+            <p class="rc-result-score" id="result-fraction">—</p>
+            <p class="rc-lead">Factual / inference items: four multiple-choice items above. The self-ratings (care / confidence) are shown in the data payload below and help compare stated effort with performance.</p>
+            <a class="rc-btn rc-btn--secondary rc-link-btn" href="../../index.html">Back to home</a>
+            <a class="rc-btn rc-link-btn" href="../../dashboard.html">Open results dashboard</a>
+            <p class="rc-diagnostics" id="result-diagnostics" aria-label="Run diagnostics JSON"></p>
+        </div>
+    </main>
+
+    <div id="dev-status">AI: initialising…</div>
+
+    <script src="../../js/behavioral-service.js"></script>
+    <script src="../../js/reading-challenge.js"></script>
+</body>
+</html>

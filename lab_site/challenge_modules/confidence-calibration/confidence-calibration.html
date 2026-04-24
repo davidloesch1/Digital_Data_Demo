@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Judgment &amp; calibration lab | Nexus Research</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../../css/calibration-challenge.css">
+    <script>window.NEXUS_WORKER_PATH = "../../worker.js";</script>
+</head>
+<body>
+    <header class="jcal-header">
+        <a class="jcal-back" href="../../index.html">← Nexus<span class="text-primary">Research</span></a>
+        <h1 class="jcal-header__title">Judgment &amp; calibration lab</h1>
+        <span class="jcal-id" id="session-id">#----</span>
+    </header>
+
+    <main class="jcal-main">
+        <div id="phase-brief" class="jcal-phase">
+            <p class="jcal-kicker">What you know</p>
+            <h2 class="jcal-hero">Facts, answers, and confidence</h2>
+            <p class="jcal-lead">You&rsquo;ll read <strong>five</strong> statements. For each, choose whether you think it is <strong>True</strong> or <strong>False</strong> (keys <span class="jcal-mono">T</span> and <span class="jcal-mono">F</span> work while choosing), then say <strong>how sure you are that you answered correctly</strong> (~50% / ~70% / ~90%).</p>
+            <p class="jcal-hint jcal-hint--brief">The lab uses your answers, confidence, and response times to describe <em>calibration</em>—roughly, how well your &ldquo;I&rsquo;m sure&rdquo; lines up with when you&rsquo;re actually right. This is not a test of how smart you are, and there is no reward for &ldquo;faking&rdquo; high confidence.</p>
+            <button type="button" class="jcal-btn" id="btn-brief">Start</button>
+            <button type="button" class="jcal-skip" id="skip-brief">Skip to result summary (optional)</button>
+        </div>
+
+        <div id="phase-run" class="jcal-phase" hidden>
+            <p class="jcal-progress" id="jcal-question-label" role="status" aria-live="polite">Ready</p>
+            <div class="jcal-card" role="region" aria-label="Current statement">
+                <p class="jcal-prompt" id="jcal-statement" tabindex="-1">Loading&hellip;</p>
+            </div>
+
+            <div id="jcal-step-tf" class="jcal-step">
+                <p class="jcal-mini">Is the statement, as written, true or false?</p>
+                <div class="jcal-actions" role="group" aria-label="True or false">
+                    <button type="button" class="jcal-choice" id="btn-true" data-true="1">True</button>
+                    <button type="button" class="jcal-choice" id="btn-false" data-true="0">False</button>
+                </div>
+            </div>
+
+            <div id="jcal-step-conf" class="jcal-step" hidden>
+                <p class="jcal-mini" id="jcal-conf-question">How sure are you that you answered <strong>correctly</strong>?</p>
+                <div class="jcal-conf" role="group" aria-label="Subjective chance your answer is correct">
+                    <button type="button" class="jcal-pbtn" data-p="0.5">~50% sure</button>
+                    <button type="button" class="jcal-pbtn" data-p="0.7">~70% sure</button>
+                    <button type="button" class="jcal-pbtn" data-p="0.9">~90% sure</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="phase-done" class="jcal-phase" hidden>
+            <p class="jcal-badge jcal-badge--win">Run complete</p>
+            <h2 class="jcal-hero jcal-hero--done">Your calibration pass is on file</h2>
+            <p class="jcal-lead">The JSON below includes a simple Brier score (lower is better when you want forecast matches outcomes) and item-level detail for your analysis pipeline.</p>
+            <a class="jcal-dboard" href="../../dashboard.html">Open results dashboard</a>
+            <a class="jcal-link-home" href="../../index.html">Back to all challenges</a>
+            <div class="jcal-diagnostics" id="jcal-diagnostics" aria-label="Diagnostics"></div>
+        </div>
+    </main>
+    <div id="dev-status" aria-hidden="true">AI: &hellip;</div>
+    <script src="../../js/behavioral-service.js"></script>
+    <script src="../../js/calibration-challenge.js"></script>
+</body>
+</html>

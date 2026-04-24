@@ -1,0 +1,23 @@
+{
+  "id": "speed-accuracy",
+  "name": "Speed & accuracy lab",
+  "version": "0.1.0",
+  "status": "live",
+  "implementation": "challenge_modules/speed-accuracy/speed-accuracy.html",
+  "summary": "Short odd–even task on single digits. Records RT per trial, error rate, and aggregates (mean, stdev of correct RTs) for a speed–accuracy feature.",
+  "profileFocus": [
+    "reaction_time",
+    "accuracy",
+    "speed_accuracy_tradeoff"
+  ],
+  "labels": [
+    "SPEED_LAB",
+    "SPEED_T1", "SPEED_T2", "SPEED_T3", "SPEED_T4", "SPEED_T5", "SPEED_T6",
+    "SPEED_T7", "SPEED_T8", "SPEED_T9", "SPEED_T10", "SPEED_T11", "SPEED_T12",
+    "SPEED_ANS", "SPEED_DONE"
+  ],
+  "caps": {
+    "trials": 12,
+    "minRtFlagMs": 100
+  }
+}

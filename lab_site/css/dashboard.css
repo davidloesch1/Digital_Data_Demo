@@ -1,0 +1,110 @@
+/* Pro dashboard (dashboard.html) */
+
+:root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --primary: #6366f1;
+    --text: #f8fafc;
+    --muted: #94a3b8;
+    --border: #334155;
+}
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter", system-ui, sans-serif;
+    margin: 0;
+    display: flex;
+    min-height: 100vh;
+}
+aside {
+    width: 300px;
+    border-right: 1px solid var(--border);
+    padding: 30px;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+main {
+    flex: 1;
+    padding: 40px;
+    overflow-y: auto;
+}
+.stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    margin-bottom: 24px;
+}
+.stat-card--extra-top {
+    margin-top: 24px;
+}
+.grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+h1, h2 {
+    margin: 0 0 20px 0;
+    letter-spacing: -0.02em;
+}
+.dash-title .text-primary,
+.text-primary {
+    color: var(--primary);
+}
+.label {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+.chart-container {
+    height: 300px;
+    position: relative;
+}
+#session-list {
+    flex: 1;
+    overflow-y: auto;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    min-height: 80px;
+}
+.session-item {
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+}
+.session-item:hover {
+    background: var(--border);
+}
+.btn-refresh {
+    margin-top: 20px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 12px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 600;
+    width: 100%;
+    box-sizing: border-box;
+}
+.btn-refresh:hover {
+    filter: brightness(1.1);
+}
+@media (max-width: 960px) {
+    body {
+        flex-direction: column;
+    }
+    aside {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}

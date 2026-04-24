@@ -41,6 +41,12 @@ const App = (function() {
 
     return {
         init,
+        submitReading: () => {
+            App.switchView('comparison');
+        },
+        trackDwell: function () {
+            // Reserved for hover / dwell analytics.
+        },
         switchView: (viewId) => {
             // Standard SPA view switching [cite: 67, 68]
             document.querySelectorAll('.view-container').forEach(v => v.classList.add('hidden'));

@@ -1,0 +1,62 @@
+{
+  "challenges": [
+    {
+      "id": "reading-behavior",
+      "title": "Reading & retention lab",
+      "entryPage": "challenge_modules/reading-behavior/reading-behavior.html",
+      "description": "Read a short case summary, then answer questions. We study scroll, dwell, and pointer patterns alongside what you remember.",
+      "image": "img/challenges/reading-behavior.svg",
+      "baselineAttempts": 4200
+    },
+    {
+      "id": "comparison-choice",
+      "title": "Comparison & choice lab",
+      "entryPage": "challenge_modules/comparison-choice/comparison-choice.html",
+      "description": "Compare three fictional offers under a stated business rule, then shortlist one. Dwell, hovers, rescans, and time-to-decision add a decision layer on top of reading skills.",
+      "image": "img/challenges/comparison-choice.svg",
+      "baselineAttempts": 1800
+    },
+    {
+      "id": "friction-persistence",
+      "title": "Friction & persistence lab",
+      "entryPage": "challenge_modules/friction-persistence/friction-persistence.html",
+      "description": "Routine 'session verification' with bounded waits, one automatic retry, a type-VERIFY step, and a small final nudge. Skip to results is always optional.",
+      "image": "img/challenges/friction-persistence.svg",
+      "baselineAttempts": 200
+    },
+    {
+      "id": "speed-accuracy",
+      "title": "Speed & accuracy lab",
+      "entryPage": "challenge_modules/speed-accuracy/speed-accuracy.html",
+      "description": "Twelve quick odd-or-even calls on single digits, with response time and errors captured. A compact speed–accuracy tradeoff signal for the lab, not a clinical test.",
+      "image": "img/challenges/speed-accuracy.svg",
+      "baselineAttempts": 800
+    },
+    {
+      "id": "confidence-calibration",
+      "title": "Judgment & calibration lab",
+      "entryPage": "challenge_modules/confidence-calibration/confidence-calibration.html",
+      "description": "Five true/false facts plus how sure you are of each answer. The lab reports accuracy, a simple Brier score, and mean confidence vs. outcome—an everyday metacognitive slice, not a formal exam.",
+      "image": "img/challenges/confidence-calibration.svg",
+      "baselineAttempts": 500
+    },
+    {
+      "id": "social-risk",
+      "title": "Social & risk lab",
+      "entryPage": "challenge_modules/social-risk/social-risk.html",
+      "description": "A fictional product page: ratings, review snippets, expandable warranty, privacy, price, and return details, plus pre-checked add-ons. No real purchase. Built for how people use trust cues and defaults.",
+      "image": "img/challenges/pdp-trust-cues.svg",
+      "imageAlt": "Illustration: demo product page with photo gallery, ratings, and default add-on, for the Social and risk lab.",
+      "baselineAttempts": 300
+    },
+    {
+      "id": "search-browse",
+      "title": "Search & browse lab",
+      "entryPage": "challenge_modules/search-browse/search-browse.html",
+      "description": "One short lookup: find a demo item with either the search box or three categories. Both work. The lab reports first action (search vs. browse) and whether you used both, for this one task only.",
+      "image": "img/challenges/lookup-browse-shelf.svg",
+      "imageAlt": "Search field next to a Browse list, for the Search and browse lab.",
+      "baselineAttempts": 150
+    }
+  ]
+}
