@@ -1,0 +1,6 @@
+node_modules/
+venv/
+.DS_Store
+collector/warehouse.jsonl
+project_snapshot.txt
+__pycache__/
