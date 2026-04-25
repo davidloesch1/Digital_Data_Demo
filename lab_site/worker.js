@@ -117,10 +117,20 @@ self.onmessage = async (e) => {
                     }
 
                     if (currentLabel !== "none") {
+                        const eventId = (self.crypto && self.crypto.randomUUID)
+                            ? self.crypto.randomUUID()
+                            : ('k_' + Date.now() + '_' + Math.random().toString(16).slice(2));
                         fetch('http://localhost:3000/collect', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ fingerprint: rawEmbedding, label: currentLabel, session_url: currentSessionUrl, timestamp: Date.now() })
+                            body: JSON.stringify({
+                                type: 'kinetic',
+                                event_id: eventId,
+                                fingerprint: rawEmbedding,
+                                label: currentLabel,
+                                session_url: currentSessionUrl,
+                                timestamp: Date.now()
+                            })
                         }).catch(() => {});
                     }
                 });

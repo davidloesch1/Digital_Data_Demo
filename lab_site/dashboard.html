@@ -4,46 +4,68 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nexus Intelligence | Pro Dashboard</title>
+    <!-- Declarative viz: Vega, Vega-Lite, vega-embed (load in this order) -->
+    <script src="https://cdn.jsdelivr.net/npm/vega@5.27.0/build/vega.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5.20.1/build/vega-lite.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6.25.0/build/vega-embed.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/dashboard.css">
+    <link rel="stylesheet" href="data-cards/data-cards.css">
+    <link rel="stylesheet" href="data-cards/chart-builder.css">
 </head>
 <body>
-
-    <aside>
-        <h2 class="dash-title">Nexus<span class="text-primary">Intel</span></h2>
-        <div class="label">Live Data Stream</div>
-        <div id="session-list">
+    <header class="dash-topbar">
+        <div class="dash-topbar__brand">Nexus<span class="text-primary">Intel</span></div>
+        <div class="dash-topbar__actions">
+            <button type="button" class="btn-refresh btn-refresh--top" onclick="fetchData()">Refresh</button>
+            <a class="btn-back btn-back--top" href="index.html">Back to challenges</a>
         </div>
-        <button type="button" class="btn-refresh" onclick="fetchData()">REFRESH CLUSTERS</button>
-    </aside>
+    </header>
 
-    <main>
-        <h1>Behavioral Analysis Overview</h1>
+    <div class="dash-shell">
+        <aside>
+            <h2 class="dash-title">Nexus<span class="text-primary">Intel</span></h2>
+            <div class="label">Live data stream</div>
+            <div id="session-list">
+            </div>
+        </aside>
 
-        <div class="grid">
-            <div class="stat-card">
-                <div class="label">Behavioral Cloud (Clustering)</div>
-                <div class="chart-container">
-                    <canvas id="cloudChart"></canvas>
+        <main>
+            <h1>Behavioral analysis</h1>
+        <p class="page-lede">The cards use Chart.js. The <strong>chart lab</strong> uses Vega-Lite: connect data, preview rows, then run a preset or paste a spec.</p>
+        <div id="data-cards-root" class="data-cards-host"></div>
+
+        <section class="chart-builder-slab" aria-labelledby="chart-lab-title">
+            <h2 id="chart-lab-title" class="chart-lab__title">Chart lab</h2>
+            <p class="chart-builder__intro">Step 1: filter the <strong>same</strong> warehouse events as the dashboard (refresh loads <code>/summary</code> into memory). Step 2: see the preview. Step 3: run a preset or your own <strong>Vega-Lite 5</strong> JSON. Future: gallery + saved <code>preset-lab</code> bundles.</p>
+
+            <div class="chart-lab">
+                <div class="chart-lab__col chart-lab__col--data">
+                    <div id="chart-connector-root" class="chart-lab__mount" aria-label="Data connection and preview"></div>
+                </div>
+                <div class="chart-lab__col chart-lab__col--work">
+                    <h3 class="chart-workbench__h">Build &amp; render</h3>
+                    <p class="chart-workbench__sub">Presets and custom specs read from the <strong>connected</strong> row set above.</p>
+                    <div id="chart-builder" class="chart-builder" aria-label="Vega and preset controls"></div>
                 </div>
             </div>
-            <div class="stat-card">
-                <div class="label">Archetype Radar (Selected User)</div>
-                <div class="chart-container">
-                    <canvas id="radarChart"></canvas>
-                </div>
-            </div>
-        </div>
+        </section>
+        </main>
+    </div>
 
-        <div class="stat-card stat-card--extra-top">
-            <div class="label">Engagement Velocity vs. Friction</div>
-            <div class="chart-container">
-                <canvas id="velocityChart"></canvas>
-            </div>
-        </div>
-    </main>
-
+    <script src="data-cards/data-model.js"></script>
+    <script src="data-cards/label-family.js"></script>
+    <script src="data-cards/warehouse-flatten.js"></script>
+    <script src="data-cards/nexus-connector.js"></script>
+    <script src="data-cards/chart-connector-ui.js"></script>
+    <script src="data-cards/behavioral-cloud.js"></script>
+    <script src="data-cards/velocity-bars.js"></script>
+    <script src="data-cards/label-mix-doughnut.js"></script>
+    <script src="data-cards/radar-archetype.js"></script>
+    <script src="data-cards/data-cards.js"></script>
+    <script src="data-cards/chart-builder-presets.js"></script>
+    <script src="data-cards/chart-builder.js"></script>
     <script src="dashboard.js"></script>
 </body>
 </html>

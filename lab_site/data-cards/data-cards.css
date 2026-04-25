@@ -1,0 +1,45 @@
+/* Data card regions (used by data-cards/*). */
+
+.data-cards {
+    min-width: 0;
+}
+.data-cards__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+.data-card {
+    background: var(--surface, #1e293b);
+    border: 1px solid var(--border, #334155);
+    border-radius: 16px;
+    padding: 24px;
+    box-sizing: border-box;
+    min-width: 0;
+}
+.data-card--full-bleed {
+    margin-top: 0;
+}
+.data-card__eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted, #94a3b8);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 8px;
+}
+.data-card__chart {
+    height: 300px;
+    position: relative;
+}
+.data-card__chart--doughnut {
+    height: 360px;
+}
+.data-card--span {
+    max-width: 100%;
+}
+@media (max-width: 960px) {
+    .data-cards__grid {
+        grid-template-columns: 1fr;
+    }
+}

@@ -1,99 +1,67 @@
 /**
- * PRO DASHBOARD - Behavioral Visualization Logic
+ * Shell: fetches /summary, fills the session list, drives data-card updates.
+ * Card markup and chart logic: lab_site/data-cards/*
  */
-let cloudChart, radarChart;
+const DASH_API = (typeof window !== "undefined" && window.NEXUS_DASH_API) || "http://localhost:3000";
+
+window.NexusDashboardState = window.NexusDashboardState || { sessions: {} };
+
+const DM = window.NexusDataModel;
+const dataCards = window.NexusDataCards.mount(document.getElementById("data-cards-root"));
+
+function nexusDataUpdated() {
+    window.dispatchEvent(
+        new CustomEvent("nexus-sessions-updated", {
+            detail: { sessionKeys: Object.keys(window.NexusDashboardState.sessions || {}) },
+        })
+    );
+}
 
 async function fetchData() {
-    const response = await fetch('http://localhost:3000/summary');
-    const data = await response.json();
-    
-    // Group by Session
-    const sessions = {};
-    data.forEach(d => {
-        const sid = d.session_url.split('/').pop() || 'Unknown';
-        if (!sessions[sid]) sessions[sid] = [];
-        sessions[sid].push(d);
-    });
-
-    renderSessionList(sessions);
-    renderCloud(sessions);
-}
-
-function renderSessionList(sessions) {
-    const list = document.getElementById('session-list');
-    list.innerHTML = '';
-    Object.keys(sessions).forEach(sid => {
-        const div = document.createElement('div');
-        div.className = 'session-item';
-        div.innerText = `> ${sid} (${sessions[sid].length} evts)`;
-        div.onclick = () => renderUserRadar(sessions[sid]);
-        list.appendChild(div);
-    });
-}
-
-function renderCloud(sessions) {
-    const ctx = document.getElementById('cloudChart').getContext('2d');
-    
-    // For the Cloud, we use the first 2 dimensions of the embedding
-    // In a real app, we would use PCA/t-SNE here
-    const datasets = Object.keys(sessions).map(sid => {
-        return {
-            label: sid,
-            data: sessions[sid].map(d => ({ x: d.fingerprint[0], y: d.fingerprint[1] })),
-            backgroundColor: sid === 'CALIBRATION' ? '#94a3b8' : '#6366f1'
-        };
-    });
-
-    if (cloudChart) cloudChart.destroy();
-    cloudChart = new Chart(ctx, {
-        type: 'scatter',
-        data: { datasets },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false,
-            scales: { x: { display: false }, y: { display: false } },
-            plugins: { legend: { display: false } }
+    const list = document.getElementById("session-list");
+    try {
+        const response = await fetch(DASH_API + "/summary");
+        if (!response.ok) throw new Error("HTTP " + response.status);
+        const data = await response.json();
+        if (!Array.isArray(data) || data.length === 0) {
+            list.innerHTML =
+                '<p class="dash-hint">No events yet. Copy <code>warehouse.example.jsonl</code> to <code>warehouse.jsonl</code> in the collector folder, or run a challenge with the collector on.</p>';
+            dataCards.setSessions({});
+            window.NexusDashboardState.sessions = {};
+            nexusDataUpdated();
+            return;
         }
-    });
-}
-
-function renderUserRadar(userEvents) {
-    const ctx = document.getElementById('radarChart').getContext('2d');
-    
-    // Calculate Scores based on Research Lab Metrics
-    // 1. Precision: High reading/calibration similarity
-    const precision = userEvents.filter(e => e.label.includes('READING')).length / userEvents.length;
-    
-    // 2. Urgency: Sum of vector magnitude (using first 4 components as proxy)
-    const urgency = userEvents.reduce((acc, e) => acc + Math.abs(e.fingerprint[2]), 0) / userEvents.length;
-    
-    // 3. Resilience: Low retry count vs high friction duration 
-    const frictionEvents = userEvents.filter(e => e.label.includes('FRICTION'));
-    const resilience = frictionEvents.length > 0 ? (1 / frictionEvents.length) : 1;
-
-    const data = {
-        labels: ['Precision', 'Urgency', 'Resilience', 'Focus', 'Methodology'],
-        datasets: [{
-            label: 'User Persona',
-            data: [precision * 100, urgency * 100, resilience * 100, 70, 60],
-            fill: true,
-            backgroundColor: 'rgba(99, 102, 241, 0.2)',
-            borderColor: '#6366f1',
-            pointBackgroundColor: '#6366f1',
-        }]
-    };
-
-    if (radarChart) radarChart.destroy();
-    radarChart = new Chart(ctx, {
-        type: 'radar',
-        data: data,
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: { r: { min: 0, max: 100, ticks: { display: false }, grid: { color: '#334155' } } },
-            plugins: { legend: { display: false } }
-        }
-    });
+        const sessions = {};
+        data.forEach((d) => {
+            const sid = DM.getSessionKey(d);
+            if (!sessions[sid]) sessions[sid] = [];
+            sessions[sid].push(d);
+        });
+        list.innerHTML = "";
+        Object.keys(sessions).forEach((sid) => {
+            const n = sessions[sid].length;
+            const nKin = sessions[sid].filter(DM.isKineticEvent).length;
+            const nLab = sessions[sid].filter(DM.isNexusLabelEvent).length;
+            const div = document.createElement("div");
+            div.className = "session-item";
+            div.innerText = `> ${sid} (${n} evts · ${nKin} kin · ${nLab} labels)`;
+            div.onclick = function () {
+                dataCards.setSelectedRadarEvents(sessions[sid]);
+            };
+            list.appendChild(div);
+        });
+        dataCards.setSessions(sessions);
+        window.NexusDashboardState.sessions = sessions;
+        nexusDataUpdated();
+    } catch (e) {
+        list.innerHTML =
+            '<p class="dash-hint">Cannot reach the collector at <code>' +
+            DASH_API +
+            '</code>. From the repo, run: <code>cd collector &amp;&amp; node collector.js</code> then refresh.</p>';
+        dataCards.setSessions({});
+        window.NexusDashboardState.sessions = {};
+        nexusDataUpdated();
+    }
 }
 
 fetchData();
