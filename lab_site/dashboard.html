@@ -3,69 +3,150 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexus Intelligence | Pro Dashboard</title>
-    <!-- Declarative viz: Vega, Vega-Lite, vega-embed (load in this order) -->
-    <script src="https://cdn.jsdelivr.net/npm/vega@5.27.0/build/vega.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5.20.1/build/vega-lite.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6.25.0/build/vega-embed.min.js"></script>
+    <title>Nexus Intelligence | Discovery Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/dashboard.css">
-    <link rel="stylesheet" href="data-cards/data-cards.css">
-    <link rel="stylesheet" href="data-cards/chart-builder.css">
+    <script>
+        window['_fs_host'] = 'fullstory.com';
+        window['_fs_script'] = 'edge.fullstory.com/s/fs.js';
+        window['_fs_org'] = 'o-1A7J9C-na1';
+        window['_fs_namespace'] = 'FS';
+        !function(m,n,e,t,l,o,g,y){var s,f,a=function(h){
+        return!(h in m)||(m.console&&m.console.log&&m.console.log('FullStory namespace conflict. Please set window["_fs_namespace"].'),!1)}(e)
+        ;function p(b){var h,d=[];function j(){h&&(d.forEach((function(b){var d;try{d=b[h[0]]&&b[h[0]](h[1])}catch(h){return void(b[3]&&b[3](h))}
+        d&&d.then?d.then(b[2],b[3]):b[2]&&b[2](d)})),d.length=0)}function r(b){return function(d){h||(h=[b,d],j())}}return b(r(0),r(1)),{
+        then:function(b,h){return p((function(r,i){d.push([b,h,r,i]),j()}))}}}a&&(g=m[e]=function(){var b=function(b,d,j,r){function i(i,c){
+        h(b,d,j,i,c,r)}r=r||2;var c,u=/Async$/;return u.test(b)?(b=b.replace(u,""),"function"==typeof Promise?new Promise(i):p(i)):h(b,d,j,c,c,r)}
+        ;function h(h,d,j,r,i,c){return b._api?b._api(h,d,j,r,i,c):(b.q&&b.q.push([h,d,j,r,i,c]),null)}return b.q=[],b}(),y=function(b){function h(h){
+        "function"==typeof h[4]&&h[4](new Error(b))}var d=g.q;if(d){for(var j=0;j<d.length;j++)h(d[j]);d.length=0,d.push=h}},function(){
+        (o=n.createElement(t)).async=!0,o.crossOrigin="anonymous",o.src="https://"+l,o.onerror=function(){y("Error loading "+l)}
+        ;var b=n.getElementsByTagName(t)[0];b&&b.parentNode?b.parentNode.insertBefore(o,b):n.head.appendChild(o)}(),function(){function b(){}
+        function h(b,h,d){g(b,h,d,1)}function d(b,d,j){h("setProperties",{type:b,properties:d},j)}function j(b,h){d("user",b,h)}function r(b,h,d){j({
+        uid:b},d),h&&j(h,d)}g.identify=r,g.setUserVars=j,g.identifyAccount=b,g.clearUserCookie=b,g.setVars=d,g.event=function(b,d,j){h("trackEvent",{
+        name:b,properties:d},j)},g.anonymize=function(){r(!1)},g.shutdown=function(){h("shutdown")},g.restart=function(){h("restart")},
+        g.log=function(b,d){h("log",{level:b,msg:d})},g.consent=function(b){h("setIdentity",{consent:!arguments.length||b})}}(),s="fetch",
+        f="XMLHttpRequest",g._w={},g._w[f]=m[f],g._w[s]=m[s],m[s]&&(m[s]=function(){return g._w[s].apply(this,arguments)}),g._v="2.0.0")
+        }(window,document,window._fs_namespace,"script",window._fs_script);
+        </script>
 </head>
-<body>
-    <header class="dash-topbar">
-        <div class="dash-topbar__brand">Nexus<span class="text-primary">Intel</span></div>
-        <div class="dash-topbar__actions">
-            <button type="button" class="btn-refresh btn-refresh--top" onclick="fetchData()">Refresh</button>
-            <a class="btn-back btn-back--top" href="index.html">Back to challenges</a>
-        </div>
+<body class="dash-page">
+
+    <header class="dash-topbar" role="banner">
+        <div class="dash-topbar__brand">Nexus<span class="text-primary">Intelligence</span></div>
+        <nav class="dash-topbar__actions" aria-label="Dashboard navigation">
+            <a class="dash-nav-link" href="index.html">← Back to Challenges</a>
+            <button type="button" class="btn-refresh btn-refresh--top" id="btn-refresh-cloud">Refresh data</button>
+        </nav>
     </header>
 
     <div class="dash-shell">
         <aside>
-            <h2 class="dash-title">Nexus<span class="text-primary">Intel</span></h2>
-            <div class="label">Live data stream</div>
-            <div id="session-list">
+            <div class="dash-aside__logo">Live warehouse</div>
+            <div class="label">Sessions &amp; DNA rows</div>
+            <div id="session-list"></div>
+            <div class="dash-aside__footer">
+                <div id="dev-status" class="dash-status">Waiting for data…</div>
+                <button type="button" class="btn-refresh" id="btn-reload-page">Reload view</button>
             </div>
         </aside>
 
-        <main>
-            <h1>Behavioral analysis</h1>
-        <p class="page-lede">The cards use Chart.js. The <strong>chart lab</strong> uses Vega-Lite: connect data, preview rows, then run a preset or paste a spec.</p>
-        <div id="data-cards-root" class="data-cards-host"></div>
-
-        <section class="chart-builder-slab" aria-labelledby="chart-lab-title">
-            <h2 id="chart-lab-title" class="chart-lab__title">Chart lab</h2>
-            <p class="chart-builder__intro">Step 1: filter the <strong>same</strong> warehouse events as the dashboard (refresh loads <code>/summary</code> into memory). Step 2: see the preview. Step 3: run a preset or your own <strong>Vega-Lite 5</strong> JSON. Future: gallery + saved <code>preset-lab</code> bundles.</p>
-
-            <div class="chart-lab">
-                <div class="chart-lab__col chart-lab__col--data">
-                    <div id="chart-connector-root" class="chart-lab__mount" aria-label="Data connection and preview"></div>
+        <main class="dash-main">
+            <div class="stat-grid">
+                <div class="card card--stat">
+                    <div class="label">Kinetic DNA rows</div>
+                    <div id="stat-kinetic" class="stat-value">—</div>
                 </div>
-                <div class="chart-lab__col chart-lab__col--work">
-                    <h3 class="chart-workbench__h">Build &amp; render</h3>
-                    <p class="chart-workbench__sub">Presets and custom specs read from the <strong>connected</strong> row set above.</p>
-                    <div id="chart-builder" class="chart-builder" aria-label="Vega and preset controls"></div>
+                <div class="card card--stat">
+                    <div class="label">Active clusters</div>
+                    <div id="stat-clusters" class="stat-value stat-value--accent">—</div>
+                </div>
+                <div class="card card--stat">
+                    <div class="label">Warehouse sessions</div>
+                    <div id="stat-sessions" class="stat-value">—</div>
+                </div>
+                <div class="card card--stat card--gradient">
+                    <div class="label label--on-dark">Signal integrity</div>
+                    <div id="stat-integrity" class="stat-value stat-value--on-dark">—</div>
                 </div>
             </div>
-        </section>
+
+            <div class="main-grid">
+                <div class="card card--chart">
+                    <div class="card-header">
+                        <div>
+                            <div class="label">Behavioral discovery cloud</div>
+                            <h2 class="card-heading">K-means clusters on kinetic fingerprints</h2>
+                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Each point is one kinetic row from <code>warehouse.jsonl</code> (via <code>/summary</code>).</p>
+                            <p id="pca-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
+                            <details class="dash-details">
+                                <summary class="dash-details__summary">What are PC1 / PC2, and when is “fallback” used?</summary>
+                                <div class="dash-details__body">
+                                    <p><strong>The idea:</strong> Each row has a 16-number fingerprint (a vector). You can’t plot 16 axes at once on a flat screen, so PCA finds the two directions in that 16-D space where the data varies the most. Those become <strong>PC1</strong> (horizontal) and <strong>PC2</strong> (vertical). Each point’s position is its projection onto those two directions—so nearby points are “similar” in a variance sense across <em>all</em> dimensions, not just raw columns 0 and 1.</p>
+                                    <p><strong>Fallback:</strong> If there aren’t enough distinct samples (or variance collapses), PCA isn’t reliable. The chart then falls back to plotting raw <strong>dim 0 vs dim 1</strong> so you still see something—those are only two coordinates of the embedding, not the full picture.</p>
+                                </div>
+                            </details>
+                            <div class="dash-cluster-control">
+                                <label for="kmeans-max-k" class="dash-cluster-control__label">Max clusters <span class="dash-cluster-control__hint">(k ≤ row count)</span></label>
+                                <div class="dash-cluster-control__row">
+                                    <input type="range" id="kmeans-max-k" class="dash-cluster-control__range" min="1" max="12" value="4" />
+                                    <span id="kmeans-max-k-value" class="dash-cluster-control__value" aria-live="polite">4</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="cloudChart" aria-label="Behavioral cluster scatter"></canvas>
+                    </div>
+                    <div id="cluster-color-legend" class="cluster-color-legend" aria-label="Cluster colors"></div>
+                    <p class="explainer">
+                        <strong>How to read it:</strong> K-means runs in the PCA plane. Colors identify clusters (same order as the swatches). Adjust max clusters above to change <em>k</em>. Click a dot or a session to highlight paths and update the session radar.
+                    </p>
+                </div>
+
+                <div class="right-col">
+                    <div class="card card--chart">
+                        <div class="label">Session radar</div>
+                        <h2 class="card-heading">Persona shape (this session)</h2>
+                        <div class="chart-container chart-container--radar">
+                            <canvas id="radarChart" aria-label="Archetype radar"></canvas>
+                        </div>
+                        <div id="archetype-info" class="archetype-info">
+                            <div id="user-archetype-label" class="archetype-title">Select a session</div>
+                            <p id="user-archetype-desc" class="archetype-desc">Choose a session from the list or click a point in the cloud to decode behavioral DNA from captured rows.</p>
+                        </div>
+                    </div>
+
+                    <div class="card card--hook">
+                        <div class="label label--hook">Organizational hook</div>
+                        <p class="hook-copy">This view shows how <strong>intent becomes kinetic</strong> when you stream behavioral DNA into a warehouse and cluster it. Want to find emergent archetypes on your own platform?</p>
+                        <button type="button" class="btn-hook" onclick="window.location.href='mailto:discovery@nexus.ai'">Request a case study</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card card--chart card--parallel-block">
+                <div class="card-header">
+                    <div>
+                        <div class="label">Full fingerprint shape</div>
+                        <h2 class="card-heading">Parallel coordinates (16 dimensions)</h2>
+                        <p class="card-sub">
+                            One polyline per kinetic row; axes <strong>0–15</strong> are min–max scaled within the current warehouse so you can compare shape across samples.
+                        </p>
+                    </div>
+                </div>
+                <div id="parallel-coords-host" class="parallel-coords-host" aria-label="Parallel coordinates fingerprint chart"></div>
+                <p class="explainer">
+                    <strong>Together with PCA:</strong> the scatter compresses 16-D into 2-D for clustering; this view preserves <em>all</em> dimensions so you can see which axes separate sessions.
+                    Selecting a session in the list emphasizes its rows.
+                </p>
+            </div>
         </main>
     </div>
 
+    <script src="js/fingerprint-viz.js"></script>
     <script src="data-cards/data-model.js"></script>
-    <script src="data-cards/label-family.js"></script>
-    <script src="data-cards/warehouse-flatten.js"></script>
-    <script src="data-cards/nexus-connector.js"></script>
-    <script src="data-cards/chart-connector-ui.js"></script>
-    <script src="data-cards/behavioral-cloud.js"></script>
-    <script src="data-cards/velocity-bars.js"></script>
-    <script src="data-cards/label-mix-doughnut.js"></script>
     <script src="data-cards/radar-archetype.js"></script>
-    <script src="data-cards/data-cards.js"></script>
-    <script src="data-cards/chart-builder-presets.js"></script>
-    <script src="data-cards/chart-builder.js"></script>
     <script src="dashboard.js"></script>
 </body>
 </html>
