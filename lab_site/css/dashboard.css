@@ -281,6 +281,51 @@ main > h1 {
     flex-direction: column;
     gap: 18px;
 }
+.dash-filters--dim-strip {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 20px;
+    align-items: flex-start;
+}
+.dash-filters--dim-strip .dash-cluster-control {
+    flex: 1 1 220px;
+    max-width: 420px;
+}
+.dimension-charts-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 8px;
+}
+.dimension-chart-cell {
+    background: rgba(0, 0, 0, 0.18);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 10px 6px;
+    min-width: 0;
+}
+.dimension-chart-cell__title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 6px;
+}
+.dimension-chart-cell__canvas {
+    position: relative;
+    height: 200px;
+}
+@media (max-width: 1200px) {
+    .dimension-charts-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 640px) {
+    .dimension-charts-grid {
+        grid-template-columns: 1fr;
+    }
+}
 .dash-cluster-control {
     margin-top: 0;
     padding-top: 0;

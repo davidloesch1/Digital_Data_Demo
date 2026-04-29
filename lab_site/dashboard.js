@@ -21,6 +21,9 @@
     const LS_K_KEY = "nexus_dash_k_max";
     const LS_MODULE_KEY = "nexus_dash_module_filter";
     const LS_GRAN_KEY = "nexus_dash_granularity";
+    const LS_DIM_SCOPE_KEY = "nexus_dash_dim_scope";
+    const LS_DIM_CHALLENGE_KEY = "nexus_dash_dim_challenge";
+    const MAX_DIM_BARS = 20;
 
     let cloudChart = null;
     let radarCtrl = null;
@@ -29,6 +32,8 @@
     let lastKineticPoints = [];
     let selectedSid = null;
     let selectedUserKey = null;
+    let lastWarehouseRows = [];
+    let dimensionCharts = [];
 
     function $(id) {
         return document.getElementById(id);
@@ -82,6 +87,437 @@
         var v = sel.value;
         if (v === "session" || v === "user") return v;
         return "kinetic";
+    }
+
+    /** Session vs visitor vs raw rows for the 16 dimension strip charts (separate from cloud granularity). */
+    function getDimScope() {
+        var sel = $("dim-scope");
+        if (!sel) return "session";
+        var v = sel.value;
+        if (v === "kinetic" || v === "user") return v;
+        return "session";
+    }
+
+    /** Small deterministic jitter for scatter x so nearby indices separate visually. */
+    function hashSidForJitter(sid) {
+        var h = 0;
+        var s = String(sid || "");
+        var i;
+        for (i = 0; i < s.length; i++) {
+            h = (h << 5) - h + s.charCodeAt(i);
+            h |= 0;
+        }
+        return Math.abs(h);
+    }
+
+    function getDimChallengeFilter() {
+        var sel = $("dim-challenge");
+        return sel ? sel.value || "" : "";
+    }
+
+    function truncateLabel(s, maxLen) {
+        s = String(s || "");
+        if (s.length <= maxLen) return s;
+        return s.slice(0, Math.max(0, maxLen - 1)) + "…";
+    }
+
+    /**
+     * Session/visitor means (aggregate), or one row per kinetic event (kinetic); optional challenge filter.
+     * @returns {{ kind: 'aggregate', units: Array, hint: string|null } | { kind: 'kinetic', points: Array, hint: null }}
+     */
+    function buildDimensionUnits(allRows, scope, challengeFilter) {
+        if (!M) return { kind: "aggregate", units: [], hint: null };
+        var kineticRows = allRows.filter(function (r) {
+            return M.isKineticEvent(r) && normalizeFingerprint(r);
+        });
+        var cf = challengeFilter !== undefined ? challengeFilter : getDimChallengeFilter();
+        if (cf && cf !== "") {
+            kineticRows = kineticRows.filter(function (r) {
+                return resolveChallengeModule(r) === cf;
+            });
+        }
+        if (!kineticRows.length) {
+            return {
+                kind: "aggregate",
+                units: [],
+                hint: cf
+                    ? "No kinetic rows for this challenge filter."
+                    : "No kinetic fingerprints yet — complete a challenge to populate strips.",
+            };
+        }
+        var i;
+        if (scope === "kinetic") {
+            var pts = [];
+            for (i = 0; i < kineticRows.length; i++) {
+                var rk = kineticRows[i];
+                var fpk = normalizeFingerprint(rk);
+                if (!fpk) continue;
+                pts.push({ fp: fpk, sid: M.getSessionKey(rk), row: rk });
+            }
+            if (!pts.length) {
+                return {
+                    kind: "aggregate",
+                    units: [],
+                    hint: "No kinetic fingerprints to plot.",
+                };
+            }
+            return { kind: "kinetic", points: pts, hint: null };
+        }
+        if (scope === "session") {
+            var bySid = {};
+            kineticRows.forEach(function (r) {
+                var sid = M.getSessionKey(r);
+                if (!bySid[sid]) bySid[sid] = [];
+                bySid[sid].push(r);
+            });
+            var units = Object.keys(bySid).map(function (sid) {
+                var rs = bySid[sid];
+                var fps = [];
+                for (i = 0; i < rs.length; i++) {
+                    var f = normalizeFingerprint(rs[i]);
+                    if (f) fps.push(f);
+                }
+                return {
+                    label: "#" + truncateLabel(sid, 14),
+                    fp: meanVector(fps),
+                    nRows: rs.length,
+                    sid: sid,
+                    userKey: null,
+                };
+            });
+            return { kind: "aggregate", units: units, hint: null };
+        }
+        var byU = {};
+        kineticRows.forEach(function (r) {
+            var uk = r.nexus_user_key;
+            if (uk === undefined || uk === null || String(uk).trim() === "") return;
+            uk = String(uk).trim();
+            if (!byU[uk]) byU[uk] = [];
+            byU[uk].push(r);
+        });
+        var unitsU = Object.keys(byU).map(function (uk) {
+            var rs = byU[uk];
+            var fps = [];
+            for (i = 0; i < rs.length; i++) {
+                var f = normalizeFingerprint(rs[i]);
+                if (f) fps.push(f);
+            }
+            return {
+                label: truncateLabel(uk, 16),
+                fp: meanVector(fps),
+                nRows: rs.length,
+                sid: M.getSessionKey(rs[0]),
+                userKey: uk,
+            };
+        });
+        if (!unitsU.length) {
+            return {
+                kind: "aggregate",
+                units: [],
+                hint: "Visitor strips need nexus_user_key on kinetic rows. Set window.NEXUS_USER_KEY in the lab or use Per session.",
+            };
+        }
+        return { kind: "aggregate", units: unitsU, hint: null };
+    }
+
+    function destroyDimensionCharts() {
+        dimensionCharts.forEach(function (c) {
+            try {
+                c.destroy();
+            } catch (_e) {}
+        });
+        dimensionCharts = [];
+    }
+
+    function ensureDimensionChartGrid() {
+        var grid = $("dimension-charts-grid");
+        if (!grid || grid.querySelector(".dimension-chart-cell")) return;
+        grid.innerHTML = "";
+        var d;
+        for (d = 0; d < 16; d++) {
+            var cell = document.createElement("div");
+            cell.className = "dimension-chart-cell";
+            cell.innerHTML =
+                '<div class="dimension-chart-cell__title">Dimension ' +
+                d +
+                '</div><div class="dimension-chart-cell__canvas"><canvas id="dim-chart-' +
+                d +
+                '" aria-label="Fingerprint dimension ' +
+                d +
+                ' strip chart"></canvas></div>';
+            grid.appendChild(cell);
+        }
+    }
+
+    function renderDimensionCharts(allRows) {
+        var grid = $("dimension-charts-grid");
+        if (!grid) return;
+        destroyDimensionCharts();
+        var rows = allRows && allRows.length ? allRows : [];
+        var scope = getDimScope();
+        var challengeFilter = getDimChallengeFilter();
+        var built = buildDimensionUnits(rows, scope, challengeFilter);
+        var caption = $("dim-strip-caption");
+        var isKinetic = built.kind === "kinetic";
+        var units = !isKinetic ? built.units : null;
+        var kinPts = isKinetic ? built.points : null;
+        var hasData = isKinetic ? kinPts && kinPts.length : units && units.length;
+
+        if (!hasData) {
+            grid.innerHTML =
+                '<p class="explainer dim-strip-empty" role="status">' +
+                (built.hint || "No data for dimension strips.") +
+                "</p>";
+            if (caption) {
+                caption.textContent = "";
+            }
+            return;
+        }
+
+        ensureDimensionChartGrid();
+
+        var chLabel =
+            challengeFilter && challengeFilter !== ""
+                ? "challenge “" + challengeFilter + "”"
+                : "any module";
+
+        if (caption) {
+            if (isKinetic) {
+                caption.textContent =
+                    "Kinetic rows · " +
+                    chLabel +
+                    " · " +
+                    kinPts.length +
+                    " row(s). Same color = same FullStory session; x = row index with slight jitter.";
+            } else {
+                var scopeLabel = scope === "user" ? "Visitor means" : "Session means";
+                caption.textContent =
+                    scopeLabel +
+                    " · " +
+                    chLabel +
+                    " · " +
+                    units.length +
+                    " unit(s); each chart shows up to " +
+                    MAX_DIM_BARS +
+                    " bars sorted high → low on that coordinate.";
+            }
+        }
+
+        if (isKinetic) {
+            var sessionOrder = [];
+            var seenSid = Object.create(null);
+            kinPts.forEach(function (p) {
+                if (!seenSid[p.sid]) {
+                    seenSid[p.sid] = true;
+                    sessionOrder.push(p.sid);
+                }
+            });
+            var colorOfSid = {};
+            sessionOrder.forEach(function (sid, idx) {
+                colorOfSid[sid] = CLUSTER_COLORS[idx % CLUSTER_COLORS.length];
+            });
+
+            var dKin;
+            for (dKin = 0; dKin < 16; dKin++) {
+                (function (dim) {
+                    var meta = kinPts.map(function (p) {
+                        return {
+                            sid: p.sid,
+                            label: p.row && p.row.label ? String(p.row.label) : "",
+                        };
+                    });
+                    var scatterData = kinPts.map(function (p, idx) {
+                        var j = hashSidForJitter(String(p.sid) + ":" + idx) % 1999;
+                        var x = idx + j / 25000;
+                        return {
+                            x: x,
+                            y: (p.fp[dim] !== undefined ? p.fp[dim] : 0) || 0,
+                        };
+                    });
+                    var colors = kinPts.map(function (p) {
+                        return colorOfSid[p.sid];
+                    });
+                    var canvas = $("dim-chart-" + dim);
+                    if (!canvas) return;
+                    var ctx = canvas.getContext("2d");
+                    var chart = new Chart(ctx, {
+                        type: "scatter",
+                        data: {
+                            datasets: [
+                                {
+                                    label: "rows",
+                                    data: scatterData,
+                                    pointBackgroundColor: colors,
+                                    pointBorderColor: "rgba(255,255,255,0.2)",
+                                    borderWidth: 1,
+                                    pointRadius: 4,
+                                    pointHoverRadius: 6,
+                                },
+                            ],
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            animation: { duration: 240 },
+                            layout: { padding: { left: 4, right: 8, top: 4, bottom: 4 } },
+                            onClick: function (_evt, elements) {
+                                if (!elements.length) return;
+                                var idx = elements[0].index;
+                                var m = meta[idx];
+                                if (m && m.sid) {
+                                    selectUser(m.sid);
+                                }
+                            },
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function (ctx) {
+                                            var i = ctx.dataIndex;
+                                            var m = meta[i];
+                                            var yv =
+                                                ctx.parsed.y !== undefined ? ctx.parsed.y : ctx.raw;
+                                            var lines = [
+                                                "#" + (m && m.sid ? m.sid : "—"),
+                                                "value: " +
+                                                    (typeof yv === "number" ? yv.toFixed(4) : yv),
+                                            ];
+                                            if (m && m.label) {
+                                                lines.push(
+                                                    "label: " +
+                                                        (m.label.length > 48
+                                                            ? m.label.slice(0, 45) + "…"
+                                                            : m.label)
+                                                );
+                                            }
+                                            return lines;
+                                        },
+                                    },
+                                },
+                            },
+                            scales: {
+                                x: {
+                                    title: {
+                                        display: true,
+                                        text: "order",
+                                        color: "#64748b",
+                                        font: { size: 10 },
+                                    },
+                                    grid: { color: "rgba(51,65,85,0.35)" },
+                                    ticks: { color: "#64748b", maxTicksLimit: 8, font: { size: 9 } },
+                                },
+                                y: {
+                                    title: {
+                                        display: true,
+                                        text: "dim " + dim,
+                                        color: "#64748b",
+                                        font: { size: 10 },
+                                    },
+                                    grid: { color: "rgba(51,65,85,0.45)" },
+                                    ticks: { color: "#64748b", maxTicksLimit: 6, font: { size: 10 } },
+                                },
+                            },
+                        },
+                    });
+                    dimensionCharts.push(chart);
+                })(dKin);
+            }
+            return;
+        }
+
+        var d;
+        for (d = 0; d < 16; d++) {
+            (function (dim) {
+                var sorted = units.slice().sort(function (a, b) {
+                        var va = (a.fp[dim] !== undefined ? a.fp[dim] : 0) || 0;
+                        var vb = (b.fp[dim] !== undefined ? b.fp[dim] : 0) || 0;
+                        return vb - va;
+                    })
+                    .slice(0, MAX_DIM_BARS);
+                var labels = sorted.map(function (u) {
+                    return u.label;
+                });
+                var values = sorted.map(function (u) {
+                    return (u.fp[dim] !== undefined ? u.fp[dim] : 0) || 0;
+                });
+                var meta = sorted.map(function (u) {
+                    return { sid: u.sid, userKey: u.userKey, nRows: u.nRows };
+                });
+                var canvas = $("dim-chart-" + dim);
+                if (!canvas) return;
+                var ctx = canvas.getContext("2d");
+                var chart = new Chart(ctx, {
+                    type: "bar",
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: "mean",
+                                data: values,
+                                backgroundColor: "rgba(99, 102, 241, 0.78)",
+                                borderColor: "rgba(129, 140, 248, 0.35)",
+                                borderWidth: 1,
+                                borderRadius: 4,
+                                barThickness: 10,
+                            },
+                        ],
+                    },
+                    options: {
+                        indexAxis: "y",
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        animation: { duration: 240 },
+                        layout: { padding: { left: 0, right: 8, top: 2, bottom: 2 } },
+                        onClick: function (_evt, elements) {
+                            if (!elements.length) return;
+                            var idx = elements[0].index;
+                            var m = meta[idx];
+                            if (!m) return;
+                            if (scope === "user" && m.userKey) {
+                                selectUserByVisitorKey(m.userKey);
+                            } else if (m.sid) {
+                                selectUser(m.sid);
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            title: {
+                                display: false,
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function (ctx) {
+                                        var i = ctx.dataIndex;
+                                        var m = meta[i];
+                                        var v = ctx.parsed.x !== undefined ? ctx.parsed.x : ctx.raw;
+                                        return [
+                                            "mean: " + (typeof v === "number" ? v.toFixed(4) : v),
+                                            "rows: " + (m && m.nRows !== undefined ? m.nRows : "—"),
+                                        ];
+                                    },
+                                },
+                            },
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: "rgba(51,65,85,0.45)" },
+                                ticks: { color: "#64748b", maxTicksLimit: 6, font: { size: 10 } },
+                            },
+                            y: {
+                                grid: { display: false },
+                                ticks: {
+                                    color: "#94a3b8",
+                                    font: { size: 9 },
+                                    autoSkip: true,
+                                    maxTicksLimit: 24,
+                                },
+                            },
+                        },
+                    },
+                });
+                dimensionCharts.push(chart);
+            })(d);
+        }
     }
 
     function meanVector(vectors) {
@@ -653,6 +1089,7 @@
                 globalSessions = {};
                 globalCentroids = [];
                 lastKineticPoints = [];
+                lastWarehouseRows = [];
                 $("stat-kinetic").textContent = "0";
                 $("stat-clusters").textContent = "0";
                 $("stat-sessions").textContent = "0";
@@ -660,12 +1097,14 @@
                 renderSessionList();
                 renderCloud({ clusters: [] }, { x: "PC1", y: "PC2" }, null);
                 renderParallelPanel();
+                renderDimensionCharts([]);
                 var cap = $("pca-caption");
                 if (cap) cap.textContent = "";
                 setStatus(true, "Warehouse reachable · empty");
                 return;
             }
 
+            lastWarehouseRows = data;
             globalSessions = groupSessions(data);
             var mf = getSelectedModuleFilter();
             var built = buildKineticPointsPCA(data, mf);
@@ -746,6 +1185,8 @@
                 if (first && lastKineticPoints.length) selectUser(first);
             }
 
+            renderDimensionCharts(data);
+
             setStatus(true, "Live · " + data.length + " warehouse rows");
         } catch (err) {
             console.error("Dashboard fetch error:", err);
@@ -796,6 +1237,49 @@
         sel.value = "";
     }
 
+    function populateDimChallengeSelect(challenges) {
+        var sel = $("dim-challenge");
+        if (!sel) return;
+        var preserve = sel.value;
+        sel.innerHTML = "";
+        var optAny = document.createElement("option");
+        optAny.value = "";
+        optAny.textContent = "Any module";
+        sel.appendChild(optAny);
+        (challenges || []).forEach(function (c) {
+            var o = document.createElement("option");
+            o.value = c.id;
+            o.textContent = c.title || c.id;
+            sel.appendChild(o);
+        });
+        var demoOpt = document.createElement("option");
+        demoOpt.value = "demo";
+        demoOpt.textContent = "Archetype lab (demo.html)";
+        sel.appendChild(demoOpt);
+        var un = document.createElement("option");
+        un.value = "unknown";
+        un.textContent = "Other / unmatched label";
+        sel.appendChild(un);
+        var opts = sel.options;
+        var i;
+        for (i = 0; i < opts.length; i++) {
+            if (opts[i].value === preserve) {
+                sel.value = preserve;
+                return;
+            }
+        }
+        var sv = localStorage.getItem(LS_DIM_CHALLENGE_KEY);
+        if (sv !== null && sv !== undefined && sv !== "") {
+            for (i = 0; i < opts.length; i++) {
+                if (opts[i].value === sv) {
+                    sel.value = sv;
+                    return;
+                }
+            }
+        }
+        sel.value = "";
+    }
+
     function init() {
         var radarCanvas = $("radarChart");
         if (typeof NexusDataCards !== "undefined" && NexusDataCards.radarArchetype) {
@@ -821,15 +1305,37 @@
             });
         }
 
+        var dimScopeEl = $("dim-scope");
+        if (dimScopeEl) {
+            var savedDs = localStorage.getItem(LS_DIM_SCOPE_KEY);
+            if (savedDs === "session" || savedDs === "user" || savedDs === "kinetic") {
+                dimScopeEl.value = savedDs;
+            }
+            dimScopeEl.addEventListener("change", function () {
+                localStorage.setItem(LS_DIM_SCOPE_KEY, dimScopeEl.value);
+                renderDimensionCharts(lastWarehouseRows);
+            });
+        }
+
+        var dimChallengeEl = $("dim-challenge");
+        if (dimChallengeEl) {
+            dimChallengeEl.addEventListener("change", function () {
+                localStorage.setItem(LS_DIM_CHALLENGE_KEY, dimChallengeEl.value);
+                renderDimensionCharts(lastWarehouseRows);
+            });
+        }
+
         fetch("data/challenges.json")
             .then(function (r) {
                 return r.json();
             })
             .then(function (d) {
                 populateModuleSelect(d.challenges || []);
+                populateDimChallengeSelect(d.challenges || []);
             })
             .catch(function () {
                 populateModuleSelect([]);
+                populateDimChallengeSelect([]);
             })
             .then(function () {
                 var sel = $("dash-module-filter");
@@ -866,6 +1372,11 @@
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(function () {
                 renderParallelPanel();
+                dimensionCharts.forEach(function (ch) {
+                    try {
+                        ch.resize();
+                    } catch (_e) {}
+                });
             }, 200);
         });
     }

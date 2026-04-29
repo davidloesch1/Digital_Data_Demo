@@ -159,6 +159,38 @@
                     Selecting a session in the list emphasizes its rows.
                 </p>
             </div>
+
+            <div class="card card--chart card--dim-strip">
+                <div class="card-header">
+                    <div>
+                        <div class="label">Embedding dimensions</div>
+                        <h2 class="card-heading">Per-dimension strip charts</h2>
+                        <p class="card-sub">
+                            Sixteen charts—one per fingerprint coordinate <strong>0–15</strong>. Use <strong>session</strong> or <strong>visitor</strong> means (horizontal bars), or <strong>per kinetic row</strong> (scatter: one dot per row, color = FullStory session). Narrow by challenge module or pool <strong>Any module</strong>.
+                        </p>
+                        <div class="dash-filters dash-filters--dim-strip">
+                            <div class="dash-cluster-control">
+                                <label for="dim-scope" class="dash-cluster-control__label">Units</label>
+                                <select id="dim-scope" class="dash-module-select" aria-label="Aggregate dimension strips by session, visitor, or kinetic row">
+                                    <option value="session">Per session (mean)</option>
+                                    <option value="user">Per visitor (mean)</option>
+                                    <option value="kinetic">Per kinetic row</option>
+                                </select>
+                                <p class="dash-module-hint">Independent from the behavioral cloud’s “Cloud points” control.</p>
+                            </div>
+                            <div class="dash-cluster-control">
+                                <label for="dim-challenge" class="dash-cluster-control__label">Challenge</label>
+                                <select id="dim-challenge" class="dash-module-select" aria-label="Filter dimension strips by challenge module">
+                                    <option value="">Any module</option>
+                                </select>
+                                <p class="dash-module-hint">Only kinetic rows matching this module feed the means (or all modules when Any).</p>
+                            </div>
+                        </div>
+                        <p id="dim-strip-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div id="dimension-charts-grid" class="dimension-charts-grid" aria-label="Sixteen charts for fingerprint dimensions 0 through 15"></div>
+            </div>
         </main>
     </div>
 
