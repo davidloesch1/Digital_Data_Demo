@@ -8,8 +8,13 @@ const BehavioralService = (function () {
         (typeof window !== "undefined" && window.NEXUS_WORKER_PATH) || "worker.js"
     );
 
-    const COLLECT_BASE =
+    var COLLECT_BASE_RAW =
         (typeof window !== "undefined" && window.NEXUS_COLLECT_BASE) || "http://localhost:3000";
+    var COLLECT_BASE = String(COLLECT_BASE_RAW).replace(/\/?$/, "");
+    worker.postMessage({
+        type: "CONFIG",
+        collectBase: COLLECT_BASE,
+    });
 
     /** Challenge id from the host page (matches data/challenges.json). Worker receives the same for kinetic rows. */
     function getChallengeModule() {
@@ -116,7 +121,21 @@ const BehavioralService = (function () {
         },
         onSignal: function (callback) {
             worker.onmessage = function (e) {
-                return callback(e.data);
+                var data = e.data;
+                var out = callback(data);
+                if (
+                    data &&
+                    data.type === "STATUS" &&
+                    typeof document !== "undefined"
+                ) {
+                    var el = document.getElementById("dev-status");
+                    if (el) {
+                        var line = "AI: " + data.msg;
+                        if (data.detail) line += " — " + data.detail;
+                        el.textContent = line;
+                    }
+                }
+                return out;
             };
         },
     };

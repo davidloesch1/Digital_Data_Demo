@@ -13,6 +13,8 @@ const CONFIG = {
 
 // --- STATE ---
 let model = null;
+/** False until weights + signatures load; inference and kinetic POSTs are skipped when false. */
+let modelReady = false;
 let signatures = {};
 let eventBuffer = [];
 let predictionHistory = [];
@@ -21,6 +23,8 @@ let currentLabel = "none";
 let currentChallengeModule = null;
 let currentUserKey = null;
 let currentSessionUrl = "unknown";
+/** Set from main thread CONFIG message (matches window.NEXUS_COLLECT_BASE). */
+let collectBase = "http://localhost:3000";
 
 /**
  * Calculates "Kinetic Energy" in the buffer.
@@ -52,21 +56,42 @@ function normalizeEvent(evt) {
     return [typeID, x, y, Math.min(timeDelta / 1000, 10)];
 }
 
+/** True if the vector has finite values and is not numerically all zeros (avoids junk warehouse rows). */
+function isUsableEmbedding(v) {
+    if (!v || !v.length) return false;
+    let sumSq = 0;
+    for (let i = 0; i < v.length; i++) {
+        const x = v[i];
+        if (!Number.isFinite(x)) return false;
+        sumSq += x * x;
+    }
+    return sumSq > 1e-12;
+}
+
 async function init() {
     try {
         self.postMessage({ type: 'STATUS', msg: '🏗️ LOADING MODEL...' });
-        model = tf.sequential();
-        model.add(tf.layers.lstm({ units: 32, inputShape: [CONFIG.WINDOW_SIZE, 4], returnSequences: true, kernelInitializer: 'zeros' }));
-        model.add(tf.layers.lstm({ units: 16, returnSequences: false, kernelInitializer: 'zeros' }));
-        
+        const m = tf.sequential();
+        m.add(tf.layers.lstm({ units: 32, inputShape: [CONFIG.WINDOW_SIZE, 4], returnSequences: true, kernelInitializer: 'zeros' }));
+        m.add(tf.layers.lstm({ units: 16, returnSequences: false, kernelInitializer: 'zeros' }));
+
         const weights = await (await fetch(CONFIG.WEIGHTS_PATH)).json();
-        model.setWeights(weights.map(w => tf.tensor(w)));
+        m.setWeights(weights.map(w => tf.tensor(w)));
         signatures = await (await fetch(CONFIG.SIGNATURES_PATH)).json();
-        
-        model.predict(tf.zeros([1, CONFIG.WINDOW_SIZE, 4]));
+
+        tf.tidy(() => {
+            m.predict(tf.zeros([1, CONFIG.WINDOW_SIZE, 4]));
+        });
+
+        model = m;
+        modelReady = true;
         self.postMessage({ type: 'STATUS', msg: '✅ DETECTION ACTIVE' });
     } catch (e) {
-        self.postMessage({ type: 'STATUS', msg: '⚠️ LOAD ERROR' });
+        model = null;
+        modelReady = false;
+        signatures = {};
+        const detail = e && e.message ? String(e.message) : String(e);
+        self.postMessage({ type: 'STATUS', msg: '⚠️ LOAD ERROR', detail });
     }
 }
 
@@ -74,6 +99,12 @@ init();
 
 self.onmessage = async (e) => {
     const { type, payload, sessionUrl, challenge_module, nexus_user_key } = e.data;
+    if (type === "CONFIG") {
+        if (e.data.collectBase) {
+            collectBase = String(e.data.collectBase).replace(/\/?$/, "");
+        }
+        return;
+    }
     if (type === 'SET_LABEL') {
         currentLabel = payload;
         currentChallengeModule =
@@ -111,49 +142,54 @@ self.onmessage = async (e) => {
                     return; 
                 }
 
-                tf.tidy(() => {
+                if (!modelReady || !model) return;
+
+                const rawEmbedding = tf.tidy(() => {
                     const input = tf.tensor3d([eventBuffer]);
-                    const rawEmbedding = Array.from(model.predict(input).dataSync());
-
-                    predictionHistory.push(rawEmbedding);
-                    if (predictionHistory.length > CONFIG.SMOOTHING_WINDOW) predictionHistory.shift();
-
-                    const smoothed = predictionHistory[0].map((_, i) => 
-                        predictionHistory.reduce((acc, row) => acc + row[i], 0) / predictionHistory.length
-                    );
-
-                    for (const [name, vector] of Object.entries(signatures)) {
-                        const score = cosineSimilarity(smoothed, vector);
-                        if (score > CONFIG.MATCH_THRESHOLD) {
-                            self.postMessage({ type: 'SIGNAL_MATCH', signalName: name, confidence: score });
-                        }
-                    }
-
-                    if (currentLabel !== "none") {
-                        const eventId = (self.crypto && self.crypto.randomUUID)
-                            ? self.crypto.randomUUID()
-                            : ('k_' + Date.now() + '_' + Math.random().toString(16).slice(2));
-                        const kineticPayload = {
-                            type: 'kinetic',
-                            event_id: eventId,
-                            fingerprint: rawEmbedding,
-                            label: currentLabel,
-                            session_url: currentSessionUrl,
-                            timestamp: Date.now()
-                        };
-                        if (currentChallengeModule) {
-                            kineticPayload.challenge_module = currentChallengeModule;
-                        }
-                        if (currentUserKey) {
-                            kineticPayload.nexus_user_key = currentUserKey;
-                        }
-                        fetch('http://localhost:3000/collect', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(kineticPayload)
-                        }).catch(() => {});
-                    }
+                    const y = model.predict(input);
+                    return Array.from(y.dataSync());
                 });
+
+                if (!isUsableEmbedding(rawEmbedding)) return;
+
+                predictionHistory.push(rawEmbedding);
+                if (predictionHistory.length > CONFIG.SMOOTHING_WINDOW) predictionHistory.shift();
+
+                const smoothed = predictionHistory[0].map((_, i) =>
+                    predictionHistory.reduce((acc, row) => acc + row[i], 0) / predictionHistory.length
+                );
+
+                for (const [name, vector] of Object.entries(signatures)) {
+                    const score = cosineSimilarity(smoothed, vector);
+                    if (score > CONFIG.MATCH_THRESHOLD) {
+                        self.postMessage({ type: 'SIGNAL_MATCH', signalName: name, confidence: score });
+                    }
+                }
+
+                if (currentLabel !== "none") {
+                    const eventId = (self.crypto && self.crypto.randomUUID)
+                        ? self.crypto.randomUUID()
+                        : ('k_' + Date.now() + '_' + Math.random().toString(16).slice(2));
+                    const kineticPayload = {
+                        type: 'kinetic',
+                        event_id: eventId,
+                        fingerprint: rawEmbedding,
+                        label: currentLabel,
+                        session_url: currentSessionUrl,
+                        timestamp: Date.now()
+                    };
+                    if (currentChallengeModule) {
+                        kineticPayload.challenge_module = currentChallengeModule;
+                    }
+                    if (currentUserKey) {
+                        kineticPayload.nexus_user_key = currentUserKey;
+                    }
+                    fetch(collectBase + '/collect', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(kineticPayload)
+                    }).catch(() => {});
+                }
             }
         });
     } catch (err) {}

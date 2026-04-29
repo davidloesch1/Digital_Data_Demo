@@ -1,0 +1,19 @@
+# Local/prototype: collector API + persisted warehouse JSONL on a Docker volume.
+# Usage: docker compose up --build
+# Lab UI: serve lab_site (e.g. npx serve lab_site -p 4173) and set lab_site/js/nexus-env.js to http://localhost:3000
+
+services:
+  collector:
+    build: ./collector
+    ports:
+      - "3000:3000"
+    environment:
+      PORT: "3000"
+      WAREHOUSE_PATH: /data/warehouse.jsonl
+      # Comma-separated origins for browser clients (static site URLs). Omit or * for permissive dev CORS.
+      # CORS_ORIGINS: "http://localhost:4173,https://your-app.netlify.app"
+    volumes:
+      - warehouse-data:/data
+
+volumes:
+  warehouse-data:
