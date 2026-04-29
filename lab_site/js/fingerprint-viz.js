@@ -229,11 +229,12 @@
     /**
      * @param {HTMLElement} container
      * @param {Array<{ vector: number[], color: string, opacity?: number, lineWidth?: number, sid?: string }>} items
-     * @param {{ highlightSid?: string|null }} opts
+     * @param {{ highlightSid?: string|null, highlightUserKey?: string|null }} opts
      */
     function renderParallelCoords(container, items, opts) {
         opts = opts || {};
         var highlightSid = opts.highlightSid;
+        var highlightUserKey = opts.highlightUserKey;
 
         if (!container) return;
         container.innerHTML = "";
@@ -331,9 +332,12 @@
                 return { it: it, idx: idx };
             })
             .sort(function (a, b) {
-                var ha = highlightSid && a.it.sid === highlightSid ? 1 : 0;
-                var hb = highlightSid && b.it.sid === highlightSid ? 1 : 0;
-                return ha - hb;
+                function score(it) {
+                    var uh = highlightUserKey && it.userKey === highlightUserKey ? 2 : 0;
+                    var sh = highlightSid && it.sid === highlightSid ? 1 : 0;
+                    return uh || sh;
+                }
+                return score(a.it) - score(b.it);
             });
 
         sorted.forEach(function (wrap) {
@@ -350,9 +354,15 @@
             path.setAttribute("fill", "none");
             path.setAttribute("stroke", it.color || "#6366f1");
 
-            var isHi = highlightSid && it.sid === highlightSid;
+            var isHi =
+                (highlightUserKey && it.userKey === highlightUserKey) ||
+                (highlightSid && it.sid === highlightSid);
+            var dim =
+                highlightUserKey || highlightSid
+                    ? !isHi
+                    : false;
             var baseOp = typeof it.opacity === "number" ? it.opacity : 0.35;
-            path.setAttribute("stroke-opacity", isHi ? 1 : highlightSid ? baseOp * 0.35 : baseOp);
+            path.setAttribute("stroke-opacity", isHi ? 1 : dim ? baseOp * 0.35 : baseOp);
             path.setAttribute("stroke-width", isHi ? (it.lineWidth || 2.5) + 1 : it.lineWidth || 1.5);
             path.setAttribute("stroke-linecap", "round");
             path.setAttribute("stroke-linejoin", "round");

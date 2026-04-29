@@ -7,6 +7,18 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/lab.css">
     <script src="js/fullstory-bootstrap.js"></script>
+    <script>
+        window.NEXUS_CHALLENGE_MODULE = "demo";
+        (function () {
+            var storageKey = "nexus_demo_visitor_id";
+            var id = localStorage.getItem(storageKey);
+            if (!id) {
+                id = "demo-" + Math.random().toString(36).slice(2, 12);
+                localStorage.setItem(storageKey, id);
+            }
+            window.NEXUS_USER_KEY = id;
+        })();
+    </script>
 </head>
 <body>
 

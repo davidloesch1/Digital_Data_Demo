@@ -77,7 +77,7 @@
                         <div>
                             <div class="label">Behavioral discovery cloud</div>
                             <h2 class="card-heading">K-means clusters on kinetic fingerprints</h2>
-                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Each point is one kinetic row from <code>warehouse.jsonl</code> (via <code>/summary</code>).</p>
+                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Use <strong>Cloud points</strong> to plot one dot per kinetic row, per FullStory session (mean fingerprint), or per visitor (mean across sessions when <code>nexus_user_key</code> is present). Data comes from <code>warehouse.jsonl</code> via <code>/summary</code>.</p>
                             <p id="pca-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
                             <details class="dash-details">
                                 <summary class="dash-details__summary">What are PC1 / PC2, and when is “fallback” used?</summary>
@@ -86,11 +86,29 @@
                                     <p><strong>Fallback:</strong> If there aren’t enough distinct samples (or variance collapses), PCA isn’t reliable. The chart then falls back to plotting raw <strong>dim 0 vs dim 1</strong> so you still see something—those are only two coordinates of the embedding, not the full picture.</p>
                                 </div>
                             </details>
-                            <div class="dash-cluster-control">
-                                <label for="kmeans-max-k" class="dash-cluster-control__label">Max clusters <span class="dash-cluster-control__hint">(k ≤ row count)</span></label>
-                                <div class="dash-cluster-control__row">
-                                    <input type="range" id="kmeans-max-k" class="dash-cluster-control__range" min="1" max="12" value="4" />
-                                    <span id="kmeans-max-k-value" class="dash-cluster-control__value" aria-live="polite">4</span>
+                            <div class="dash-filters">
+                                <div class="dash-cluster-control">
+                                    <label for="dash-module-filter" class="dash-cluster-control__label">Challenge module</label>
+                                    <select id="dash-module-filter" class="dash-module-select" aria-label="Filter by challenge module">
+                                        <option value="">All modules</option>
+                                    </select>
+                                    <p class="dash-module-hint">New captures include <code>challenge_module</code> from the lab page. Older rows are matched by <code>label</code> prefix (e.g. <code>SR_*</code>, <code>SPEED_*</code>). Rows that don’t match are omitted or grouped under Other.</p>
+                                </div>
+                                <div class="dash-cluster-control">
+                                    <label for="dash-granularity" class="dash-cluster-control__label">Cloud points</label>
+                                    <select id="dash-granularity" class="dash-module-select" aria-label="Aggregate behavioral cloud by unit">
+                                        <option value="kinetic">Per kinetic row</option>
+                                        <option value="session">Per session (mean)</option>
+                                        <option value="user">Per visitor (mean)</option>
+                                    </select>
+                                    <p class="dash-module-hint">Session and visitor modes collapse rows before PCA. Visitor mode needs <code>nexus_user_key</code> on captured rows.</p>
+                                </div>
+                                <div class="dash-cluster-control">
+                                    <label for="kmeans-max-k" class="dash-cluster-control__label">Max clusters <span class="dash-cluster-control__hint">(k ≤ row count)</span></label>
+                                    <div class="dash-cluster-control__row">
+                                        <input type="range" id="kmeans-max-k" class="dash-cluster-control__range" min="1" max="12" value="4" />
+                                        <span id="kmeans-max-k-value" class="dash-cluster-control__value" aria-live="polite">4</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -100,7 +118,7 @@
                     </div>
                     <div id="cluster-color-legend" class="cluster-color-legend" aria-label="Cluster colors"></div>
                     <p class="explainer">
-                        <strong>How to read it:</strong> K-means runs in the PCA plane. Colors identify clusters (same order as the swatches). Adjust max clusters above to change <em>k</em>. Click a dot or a session to highlight paths and update the session radar.
+                        <strong>How to read it:</strong> Optionally narrow rows by <strong>challenge module</strong> (derived from labels) and choose whether each dot is a kinetic row, a session mean, or a visitor mean. K-means runs in the PCA plane on that subset. Colors identify clusters (same order as the swatches). Click a dot or a session to highlight paths and update the radar.
                     </p>
                 </div>
 

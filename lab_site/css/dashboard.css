@@ -273,10 +273,39 @@ main > h1 {
 .dash-details__body p:last-child {
     margin-bottom: 0;
 }
-.dash-cluster-control {
+.dash-filters {
     margin-top: 16px;
     padding-top: 14px;
     border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+.dash-cluster-control {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+}
+.dash-module-select {
+    width: 100%;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+}
+.dash-module-hint {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
+    margin: 8px 0 0;
+}
+.dash-module-hint code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
 }
 .dash-cluster-control__label {
     display: flex;

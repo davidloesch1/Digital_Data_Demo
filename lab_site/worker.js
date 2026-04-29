@@ -18,6 +18,8 @@ let eventBuffer = [];
 let predictionHistory = [];
 let lastEventTime = 0;
 let currentLabel = "none";
+let currentChallengeModule = null;
+let currentUserKey = null;
 let currentSessionUrl = "unknown";
 
 /**
@@ -71,8 +73,19 @@ async function init() {
 init();
 
 self.onmessage = async (e) => {
-    const { type, payload, sessionUrl } = e.data;
-    if (type === 'SET_LABEL') { currentLabel = payload; return; }
+    const { type, payload, sessionUrl, challenge_module, nexus_user_key } = e.data;
+    if (type === 'SET_LABEL') {
+        currentLabel = payload;
+        currentChallengeModule =
+            challenge_module !== undefined && challenge_module !== null && String(challenge_module).trim() !== ""
+                ? String(challenge_module).trim()
+                : null;
+        currentUserKey =
+            nexus_user_key !== undefined && nexus_user_key !== null && String(nexus_user_key).trim() !== ""
+                ? String(nexus_user_key).trim()
+                : null;
+        return;
+    }
     if (sessionUrl) currentSessionUrl = sessionUrl;
 
     try {
@@ -120,17 +133,24 @@ self.onmessage = async (e) => {
                         const eventId = (self.crypto && self.crypto.randomUUID)
                             ? self.crypto.randomUUID()
                             : ('k_' + Date.now() + '_' + Math.random().toString(16).slice(2));
+                        const kineticPayload = {
+                            type: 'kinetic',
+                            event_id: eventId,
+                            fingerprint: rawEmbedding,
+                            label: currentLabel,
+                            session_url: currentSessionUrl,
+                            timestamp: Date.now()
+                        };
+                        if (currentChallengeModule) {
+                            kineticPayload.challenge_module = currentChallengeModule;
+                        }
+                        if (currentUserKey) {
+                            kineticPayload.nexus_user_key = currentUserKey;
+                        }
                         fetch('http://localhost:3000/collect', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                type: 'kinetic',
-                                event_id: eventId,
-                                fingerprint: rawEmbedding,
-                                label: currentLabel,
-                                session_url: currentSessionUrl,
-                                timestamp: Date.now()
-                            })
+                            body: JSON.stringify(kineticPayload)
                         }).catch(() => {});
                     }
                 });

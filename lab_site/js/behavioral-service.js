@@ -11,6 +11,24 @@ const BehavioralService = (function () {
     const COLLECT_BASE =
         (typeof window !== "undefined" && window.NEXUS_COLLECT_BASE) || "http://localhost:3000";
 
+    /** Challenge id from the host page (matches data/challenges.json). Worker receives the same for kinetic rows. */
+    function getChallengeModule() {
+        if (typeof window === "undefined") return null;
+        var m = window.NEXUS_CHALLENGE_MODULE;
+        if (m === undefined || m === null) return null;
+        var s = String(m).trim();
+        return s === "" ? null : s;
+    }
+
+    /** Optional stable visitor id for cross-session aggregation on the dashboard (e.g. set from localStorage). */
+    function getUserKey() {
+        if (typeof window === "undefined") return null;
+        var u = window.NEXUS_USER_KEY;
+        if (u === undefined || u === null) return null;
+        var s = String(u).trim();
+        return s === "" ? null : s;
+    }
+
     function newEventId() {
         if (typeof crypto !== "undefined" && crypto.randomUUID) {
             return crypto.randomUUID();
@@ -50,6 +68,10 @@ const BehavioralService = (function () {
             session_url: getFullStorySessionUrl(),
             timestamp: Date.now(),
         };
+        var cm = getChallengeModule();
+        if (cm) payload.challenge_module = cm;
+        var uk = getUserKey();
+        if (uk) payload.nexus_user_key = uk;
         fetch(COLLECT_BASE + "/collect", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -77,7 +99,12 @@ const BehavioralService = (function () {
 
     return {
         setLabel: function (label) {
-            worker.postMessage({ type: "SET_LABEL", payload: label });
+            worker.postMessage({
+                type: "SET_LABEL",
+                payload: label,
+                challenge_module: getChallengeModule(),
+                nexus_user_key: getUserKey(),
+            });
             if (label !== "none" && window.FS && typeof FS.event === "function") {
                 try {
                     FS.event("Nexus label", { phase: label, source: "nexus_lab" });

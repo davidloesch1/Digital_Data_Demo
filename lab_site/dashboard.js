@@ -19,6 +19,8 @@
         "#f97316",
     ];
     const LS_K_KEY = "nexus_dash_k_max";
+    const LS_MODULE_KEY = "nexus_dash_module_filter";
+    const LS_GRAN_KEY = "nexus_dash_granularity";
 
     let cloudChart = null;
     let radarCtrl = null;
@@ -26,6 +28,7 @@
     let globalCentroids = [];
     let lastKineticPoints = [];
     let selectedSid = null;
+    let selectedUserKey = null;
 
     function $(id) {
         return document.getElementById(id);
@@ -39,56 +42,222 @@
         return out;
     }
 
-    function countKineticRows(rows) {
+    /**
+     * Maps warehouse row label to challenge module id (matches lab_site/data/challenges.json ids).
+     * Kinetic rows only carry `label`; there is no separate module field on POST today.
+     */
+    function moduleFromLabel(label) {
+        var U = (label || "").toString().trim().toUpperCase();
+        if (!U) return "unknown";
+        if (U.startsWith("SR_")) return "social-risk";
+        if (U.startsWith("SPEED_")) return "speed-accuracy";
+        if (U.startsWith("SB_")) return "search-browse";
+        if (U.startsWith("CALIB")) return "confidence-calibration";
+        if (U === "CALIBRATION") return "confidence-calibration";
+        if (U.startsWith("FRICTION")) return "friction-persistence";
+        if (U.startsWith("READING") || U === "RETENTION") return "reading-behavior";
+        if (U.startsWith("COMPARISON") || U === "BRIEF") return "comparison-choice";
+        return "unknown";
+    }
+
+    /** Prefer explicit warehouse field from capture; fall back to label heuristics for older rows. */
+    function resolveChallengeModule(row) {
+        if (!row) return "unknown";
+        var cm = row.challenge_module;
+        if (cm !== undefined && cm !== null && String(cm).trim() !== "") {
+            return String(cm).trim();
+        }
+        return moduleFromLabel(row.label);
+    }
+
+    function getSelectedModuleFilter() {
+        var sel = $("dash-module-filter");
+        if (!sel) return "";
+        return sel.value || "";
+    }
+
+    function getGranularityMode() {
+        var sel = $("dash-granularity");
+        if (!sel) return "kinetic";
+        var v = sel.value;
+        if (v === "session" || v === "user") return v;
+        return "kinetic";
+    }
+
+    function meanVector(vectors) {
+        if (!vectors || !vectors.length) return null;
+        var d = vectors[0].length;
+        var out = [];
+        var i, j;
+        for (j = 0; j < d; j++) {
+            var s = 0;
+            for (i = 0; i < vectors.length; i++) s += vectors[i][j] || 0;
+            out.push(s / vectors.length);
+        }
+        return out;
+    }
+
+    /**
+     * Collapse kinetic rows by session or visitor before PCA.
+     * @returns {Array<{ fp: number[], row: object, sid: string, aggregateKind: string, userKey: string|null }>}
+     */
+    function buildAnalysisUnits(kineticRows) {
+        var mode = getGranularityMode();
+        var i;
+        if (mode === "kinetic") {
+            var outK = [];
+            for (i = 0; i < kineticRows.length; i++) {
+                var r = kineticRows[i];
+                var fp = normalizeFingerprint(r);
+                if (!fp) continue;
+                outK.push({
+                    fp: fp,
+                    row: r,
+                    sid: M.getSessionKey(r),
+                    aggregateKind: "kinetic",
+                    userKey: null,
+                });
+            }
+            return outK;
+        }
+        if (mode === "session") {
+            var bySid = {};
+            kineticRows.forEach(function (r) {
+                var fp = normalizeFingerprint(r);
+                if (!fp) return;
+                var sid = M.getSessionKey(r);
+                if (!bySid[sid]) bySid[sid] = [];
+                bySid[sid].push(r);
+            });
+            return Object.keys(bySid).map(function (sid) {
+                var rs = bySid[sid];
+                var fps = [];
+                for (i = 0; i < rs.length; i++) {
+                    var f = normalizeFingerprint(rs[i]);
+                    if (f) fps.push(f);
+                }
+                return {
+                    fp: meanVector(fps),
+                    row: rs[0],
+                    sid: sid,
+                    aggregateKind: "session",
+                    userKey: null,
+                };
+            });
+        }
+        if (mode === "user") {
+            var byU = {};
+            kineticRows.forEach(function (r) {
+                var uk = r.nexus_user_key;
+                if (uk === undefined || uk === null || String(uk).trim() === "") return;
+                uk = String(uk).trim();
+                if (!byU[uk]) byU[uk] = [];
+                byU[uk].push(r);
+            });
+            return Object.keys(byU).map(function (uk) {
+                var rs = byU[uk];
+                var fps = [];
+                for (i = 0; i < rs.length; i++) {
+                    var f = normalizeFingerprint(rs[i]);
+                    if (f) fps.push(f);
+                }
+                return {
+                    fp: meanVector(fps),
+                    row: rs[0],
+                    sid: M.getSessionKey(rs[0]),
+                    aggregateKind: "user",
+                    userKey: uk,
+                };
+            });
+        }
+        return [];
+    }
+
+    function countKineticRows(rows, moduleFilter) {
         if (!M) return 0;
+        var mf = moduleFilter !== undefined ? moduleFilter : getSelectedModuleFilter();
         return rows.filter(function (r) {
-            return M.isKineticEvent(r) && normalizeFingerprint(r);
+            if (!M.isKineticEvent(r) || !normalizeFingerprint(r)) return false;
+            if (!mf || mf === "") return true;
+            return resolveChallengeModule(r) === mf;
         }).length;
     }
 
+    function sessionVisibleForModule(sid, moduleFilter) {
+        var mf = moduleFilter !== undefined ? moduleFilter : getSelectedModuleFilter();
+        if (!mf || mf === "") return true;
+        if (!M) return true;
+        var rows = globalSessions[sid] || [];
+        return rows.some(function (r) {
+            return M.isKineticEvent(r) && normalizeFingerprint(r) && resolveChallengeModule(r) === mf;
+        });
+    }
+
     /** Builds scatter points in PCA space + attaches fp for parallel coords. Uses NexusFingerprintViz when available. */
-    function buildKineticPointsPCA(rows) {
-        if (!M) return { points: [], pca: { explainedPct: [0, 0], fallback: true } };
+    function buildKineticPointsPCA(rows, moduleFilter) {
+        if (!M) return { points: [], pca: { explainedPct: [0, 0], fallback: true }, emptyHint: null };
+        var mf = moduleFilter !== undefined ? moduleFilter : getSelectedModuleFilter();
         var kineticRows = rows.filter(function (r) {
             return M.isKineticEvent(r) && normalizeFingerprint(r);
         });
-        if (!kineticRows.length) {
-            return { points: [], pca: { explainedPct: [0, 0], fallback: true } };
+        if (mf && mf !== "") {
+            kineticRows = kineticRows.filter(function (r) {
+                return resolveChallengeModule(r) === mf;
+            });
         }
-        var vectors = kineticRows.map(function (r) {
-            return normalizeFingerprint(r);
+        if (!kineticRows.length) {
+            return { points: [], pca: { explainedPct: [0, 0], fallback: true }, emptyHint: null };
+        }
+        var units = buildAnalysisUnits(kineticRows);
+        if (getGranularityMode() === "user" && (!units || !units.length)) {
+            return {
+                points: [],
+                pca: { explainedPct: [0, 0], fallback: true },
+                emptyHint:
+                    "Visitor view needs nexus_user_key on kinetic rows. Set window.NEXUS_USER_KEY in the lab, or switch to Session / Kinetic event.",
+            };
+        }
+        if (!units.length) {
+            return { points: [], pca: { explainedPct: [0, 0], fallback: true }, emptyHint: null };
+        }
+        var vectors = units.map(function (u) {
+            return u.fp;
         });
         var VF = typeof NexusFingerprintViz !== "undefined" ? NexusFingerprintViz : null;
         var pca = VF ? VF.pcaProject2D(vectors) : null;
-        if (!pca || !pca.points || pca.points.length !== kineticRows.length) {
+        if (!pca || !pca.points || pca.points.length !== units.length) {
             return {
-                points: kineticRows.map(function (d) {
-                    var fp = normalizeFingerprint(d);
+                points: units.map(function (u) {
+                    var fp = u.fp;
                     return {
                         x: fp[0],
                         y: fp[1],
                         fp: VF ? VF.pad16(fp) : fp,
-                        original: d,
-                        sid: M.getSessionKey(d),
+                        original: u.row,
+                        sid: u.sid,
+                        userKey: u.userKey,
+                        aggregateKind: u.aggregateKind,
                         clusterIndex: 0,
                     };
                 }),
                 pca: { explainedPct: [0, 0], fallback: true },
+                emptyHint: null,
             };
         }
-        var points = kineticRows.map(function (row, i) {
-            var fp = normalizeFingerprint(row);
+        var points = units.map(function (u, i) {
             var pt = pca.points[i];
             return {
                 x: pt.x,
                 y: pt.y,
-                fp: VF.pad16(fp),
-                original: row,
-                sid: M.getSessionKey(row),
+                fp: VF.pad16(u.fp),
+                original: u.row,
+                sid: u.sid,
+                userKey: u.userKey,
+                aggregateKind: u.aggregateKind,
                 clusterIndex: 0,
             };
         });
-        return { points: points, pca: pca };
+        return { points: points, pca: pca, emptyHint: null };
     }
 
     function groupSessions(rows) {
@@ -192,8 +361,7 @@
 
     function sessionMeanPlane(sid) {
         var pts = lastKineticPoints.filter(function (p) {
-            var k = M ? M.getSessionKey(p.original) : fallbackSessionKey(p.original);
-            return k === sid;
+            return p.sid === sid;
         });
         if (!pts.length) return null;
         return {
@@ -219,12 +387,16 @@
                 color: CLUSTER_COLORS[p.clusterIndex % CLUSTER_COLORS.length] || "#6366f1",
                 opacity: 0.42,
                 sid: p.sid,
+                userKey: p.userKey || null,
             };
         });
-        NexusFingerprintViz.renderParallelCoords(host, items, { highlightSid: selectedSid });
+        NexusFingerprintViz.renderParallelCoords(host, items, {
+            highlightSid: selectedSid,
+            highlightUserKey: selectedUserKey,
+        });
     }
 
-    function renderCloud(clusterResult, axisTitles) {
+    function renderCloud(clusterResult, axisTitles, emptyHint) {
         axisTitles = axisTitles || { x: "PC1", y: "PC2" };
         var ctx = $("cloudChart").getContext("2d");
         var clusters = clusterResult.clusters;
@@ -267,7 +439,9 @@
                     plugins: {
                         title: {
                             display: true,
-                            text: "No kinetic fingerprints yet — complete a challenge to populate the cloud.",
+                            text:
+                                emptyHint ||
+                                "No kinetic fingerprints yet — complete a challenge to populate the cloud.",
                             color: "#94a3b8",
                             font: { size: 13 },
                         },
@@ -295,9 +469,11 @@
                     var el = elements[0];
                     var ds = datasets[el.datasetIndex];
                     var pt = ds.data[el.index];
-                    if (pt && pt.original) {
-                        var sid = M ? M.getSessionKey(pt.original) : fallbackSessionKey(pt.original);
-                        selectUser(sid);
+                    if (!pt || !pt.original) return;
+                    if (pt.aggregateKind === "user" && pt.userKey) {
+                        selectUserByVisitorKey(pt.userKey);
+                    } else {
+                        selectUser(pt.sid);
                     }
                 },
                 scales: {
@@ -329,8 +505,61 @@
         });
     }
 
+    function collectRowsForVisitorKey(uk) {
+        var out = [];
+        Object.keys(globalSessions).forEach(function (sid) {
+            (globalSessions[sid] || []).forEach(function (r) {
+                if (r.nexus_user_key && String(r.nexus_user_key).trim() === uk) out.push(r);
+            });
+        });
+        return out;
+    }
+
+    function visitorMeanPlane(uk) {
+        var pts = lastKineticPoints.filter(function (p) {
+            return p.userKey === uk;
+        });
+        if (!pts.length) return null;
+        return {
+            x: pts.reduce(function (a, p) {
+                return a + p.x;
+            }, 0) / pts.length,
+            y: pts.reduce(function (a, p) {
+                return a + p.y;
+            }, 0) / pts.length,
+        };
+    }
+
+    function selectUserByVisitorKey(uk) {
+        selectedUserKey = uk;
+        selectedSid = null;
+        var merged = collectRowsForVisitorKey(uk);
+        if (!merged.length) return;
+
+        document.querySelectorAll(".session-item").forEach(function (el) {
+            var sid = el.getAttribute("data-sid");
+            var rows = globalSessions[sid] || [];
+            var hit = rows.some(function (r) {
+                return r.nexus_user_key && String(r.nexus_user_key).trim() === uk;
+            });
+            el.classList.toggle("active", hit);
+        });
+
+        var mean = visitorMeanPlane(uk);
+        var clusterIdx = mean ? nearestClusterIndex(mean.x, mean.y) : 0;
+
+        $("user-archetype-label").textContent = "Cluster " + (clusterIdx + 1) + " · visitor " + uk;
+        $("user-archetype-desc").textContent =
+            merged.length +
+            " warehouse row(s) for this visitor across sessions (module filter applies to the chart only).";
+
+        if (radarCtrl && radarCtrl.update) radarCtrl.update(merged);
+        renderParallelPanel();
+    }
+
     function selectUser(sid) {
         selectedSid = sid;
+        selectedUserKey = null;
         var userEvents = globalSessions[sid];
         if (!userEvents || !userEvents.length) return;
 
@@ -341,9 +570,7 @@
         var mean = sessionMeanPlane(sid);
         var clusterIdx = mean ? nearestClusterIndex(mean.x, mean.y) : 0;
 
-        var kineticN = userEvents.filter(function (e) {
-            return M && M.isKineticEvent(e);
-        }).length;
+        var kineticN = countKineticRows(userEvents, getSelectedModuleFilter());
         var labels = userEvents
             .map(function (e) {
                 return e.label;
@@ -365,18 +592,27 @@
     function renderSessionList() {
         var container = $("session-list");
         container.innerHTML = "";
-        var keys = Object.keys(globalSessions);
+        var mf = getSelectedModuleFilter();
+        var keys = Object.keys(globalSessions).filter(function (sid) {
+            return sessionVisibleForModule(sid, mf);
+        });
         keys.sort(function (a, b) {
-            var ka = countKineticRows(globalSessions[a]);
-            var kb = countKineticRows(globalSessions[b]);
+            var ka = countKineticRows(globalSessions[a], mf);
+            var kb = countKineticRows(globalSessions[b], mf);
             if (kb !== ka) return kb - ka;
             return String(a).localeCompare(String(b));
         });
         keys.forEach(function (sid) {
             var rows = globalSessions[sid];
-            var k = countKineticRows(rows);
+            var k = countKineticRows(rows, mf);
             var div = document.createElement("div");
-            div.className = "session-item" + (sid === selectedSid ? " active" : "");
+            var activeSession = selectedSid && sid === selectedSid;
+            var activeVisitor =
+                selectedUserKey &&
+                rows.some(function (r) {
+                    return r.nexus_user_key && String(r.nexus_user_key).trim() === selectedUserKey;
+                });
+            div.className = "session-item" + (activeSession || activeVisitor ? " active" : "");
             div.setAttribute("data-sid", sid);
             div.innerHTML =
                 "<div><strong>#" +
@@ -422,7 +658,7 @@
                 $("stat-sessions").textContent = "0";
                 $("stat-integrity").textContent = "—";
                 renderSessionList();
-                renderCloud({ clusters: [] }, { x: "PC1", y: "PC2" });
+                renderCloud({ clusters: [] }, { x: "PC1", y: "PC2" }, null);
                 renderParallelPanel();
                 var cap = $("pca-caption");
                 if (cap) cap.textContent = "";
@@ -431,17 +667,24 @@
             }
 
             globalSessions = groupSessions(data);
-            var built = buildKineticPointsPCA(data);
+            var mf = getSelectedModuleFilter();
+            var built = buildKineticPointsPCA(data, mf);
             lastKineticPoints = built.points;
             var pca = built.pca;
 
             $("stat-kinetic").textContent = String(lastKineticPoints.length);
-            $("stat-sessions").textContent = String(Object.keys(globalSessions).length);
+            var visibleSessions = Object.keys(globalSessions).filter(function (sid) {
+                return sessionVisibleForModule(sid, mf);
+            });
+            $("stat-sessions").textContent = String(visibleSessions.length);
             $("stat-integrity").textContent = computeIntegrity(data, lastKineticPoints);
 
             var axisTitles;
             var capEl = $("pca-caption");
-            if (pca.fallback) {
+            if (!lastKineticPoints.length && built.emptyHint) {
+                axisTitles = { x: "PC1", y: "PC2" };
+                if (capEl) capEl.textContent = built.emptyHint;
+            } else if (pca.fallback) {
                 axisTitles = { x: "Fingerprint · dim 0", y: "Fingerprint · dim 1" };
                 if (capEl) capEl.textContent = "Using raw dimensions 0–1 (PCA needs more variance or samples).";
             } else {
@@ -460,8 +703,10 @@
 
             var maxK = getDesiredClusterCount();
             syncClusterKUi();
-            var kTarget = Math.min(maxK, Math.max(1, lastKineticPoints.length));
-            var km = performKMeans(lastKineticPoints, kTarget);
+            var km =
+                lastKineticPoints.length === 0
+                    ? { clusters: [], centroids: [] }
+                    : performKMeans(lastKineticPoints, Math.min(maxK, lastKineticPoints.length));
             globalCentroids = km.centroids;
 
             var nonempty = km.clusters.filter(function (c) {
@@ -470,16 +715,30 @@
             $("stat-clusters").textContent = String(nonempty);
 
             renderSessionList();
-            renderCloud(km, axisTitles);
+            renderCloud(
+                km,
+                axisTitles,
+                lastKineticPoints.length ? null : built.emptyHint
+            );
             renderParallelPanel();
 
-            if (selectedSid && globalSessions[selectedSid]) {
+            var gran = getGranularityMode();
+            if (
+                gran === "user" &&
+                selectedUserKey &&
+                collectRowsForVisitorKey(selectedUserKey).length
+            ) {
+                selectUserByVisitorKey(selectedUserKey);
+            } else if (selectedSid && globalSessions[selectedSid] && sessionVisibleForModule(selectedSid, mf)) {
                 selectUser(selectedSid);
             } else {
-                var sorted = Object.keys(globalSessions);
+                selectedUserKey = null;
+                var sorted = Object.keys(globalSessions).filter(function (sid) {
+                    return sessionVisibleForModule(sid, mf);
+                });
                 sorted.sort(function (a, b) {
-                    var ka = countKineticRows(globalSessions[a]);
-                    var kb = countKineticRows(globalSessions[b]);
+                    var ka = countKineticRows(globalSessions[a], mf);
+                    var kb = countKineticRows(globalSessions[b], mf);
                     if (kb !== ka) return kb - ka;
                     return String(a).localeCompare(String(b));
                 });
@@ -494,6 +753,49 @@
         }
     }
 
+    function populateModuleSelect(challenges) {
+        var sel = $("dash-module-filter");
+        if (!sel) return;
+        var preserve = sel.value;
+        sel.innerHTML = "";
+        var optAll = document.createElement("option");
+        optAll.value = "";
+        optAll.textContent = "All modules";
+        sel.appendChild(optAll);
+        (challenges || []).forEach(function (c) {
+            var o = document.createElement("option");
+            o.value = c.id;
+            o.textContent = c.title || c.id;
+            sel.appendChild(o);
+        });
+        var demoOpt = document.createElement("option");
+        demoOpt.value = "demo";
+        demoOpt.textContent = "Archetype lab (demo.html)";
+        sel.appendChild(demoOpt);
+        var un = document.createElement("option");
+        un.value = "unknown";
+        un.textContent = "Other / unmatched label";
+        sel.appendChild(un);
+        var opts = sel.options;
+        var i;
+        for (i = 0; i < opts.length; i++) {
+            if (opts[i].value === preserve) {
+                sel.value = preserve;
+                return;
+            }
+        }
+        var sv = localStorage.getItem(LS_MODULE_KEY);
+        if (sv) {
+            for (i = 0; i < opts.length; i++) {
+                if (opts[i].value === sv) {
+                    sel.value = sv;
+                    return;
+                }
+            }
+        }
+        sel.value = "";
+    }
+
     function init() {
         var radarCanvas = $("radarChart");
         if (typeof NexusDataCards !== "undefined" && NexusDataCards.radarArchetype) {
@@ -506,6 +808,39 @@
         $("btn-reload-page").onclick = function () {
             location.reload();
         };
+
+        var granSel = $("dash-granularity");
+        if (granSel) {
+            var savedGran = localStorage.getItem(LS_GRAN_KEY);
+            if (savedGran === "kinetic" || savedGran === "session" || savedGran === "user") {
+                granSel.value = savedGran;
+            }
+            granSel.addEventListener("change", function () {
+                localStorage.setItem(LS_GRAN_KEY, granSel.value);
+                fetchData();
+            });
+        }
+
+        fetch("data/challenges.json")
+            .then(function (r) {
+                return r.json();
+            })
+            .then(function (d) {
+                populateModuleSelect(d.challenges || []);
+            })
+            .catch(function () {
+                populateModuleSelect([]);
+            })
+            .then(function () {
+                var sel = $("dash-module-filter");
+                if (sel) {
+                    sel.addEventListener("change", function () {
+                        localStorage.setItem(LS_MODULE_KEY, sel.value);
+                        fetchData();
+                    });
+                }
+                fetchData();
+            });
 
         var sk = $("kmeans-max-k");
         if (sk) {
@@ -525,8 +860,6 @@
                 }, 320);
             });
         }
-
-        fetchData();
 
         var resizeTimer;
         window.addEventListener("resize", function () {
