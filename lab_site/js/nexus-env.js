@@ -5,7 +5,7 @@
  */
 (function () {
     if (typeof window === "undefined") return;
-    var fallback = "http://localhost:3000";
+    var fallback = "digitaldatademo-production.up.railway.app";
     var single = window.NEXUS_API_BASE;
     var collect =
         window.NEXUS_COLLECT_BASE ||
