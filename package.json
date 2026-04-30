@@ -1,0 +1,16 @@
+{
+  "name": "digital-data-demo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Repo root shim for Railway when Root Directory is not set to collector/",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "body-parser": "^2.2.2",
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
+  }
+}

@@ -4,11 +4,13 @@ Target: **one collector API** (Node + JSONL on disk) and **static hosting** for 
 
 ## Environment variables (collector)
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `PORT` | HTTP port | `3000` |
-| `WAREHOUSE_PATH` | Absolute path to append-only JSONL | `./warehouse.jsonl` (cwd) |
-| `CORS_ORIGINS` | Comma-separated allowed browser origins. Omit or `*` for open CORS (dev only). | (open) |
+
+| Variable         | Purpose                                                                        | Default                   |
+| ---------------- | ------------------------------------------------------------------------------ | ------------------------- |
+| `PORT`           | HTTP port                                                                      | `3000`                    |
+| `WAREHOUSE_PATH` | Absolute path to append-only JSONL                                             | `./warehouse.jsonl` (cwd) |
+| `CORS_ORIGINS`   | Comma-separated allowed browser origins. Omit or `*` for open CORS (dev only). | (open)                    |
+
 
 Endpoints: `POST /collect`, `GET /summary`, `POST /discard`, `GET /health`.
 
@@ -20,7 +22,7 @@ From the repo root:
 docker compose up --build
 ```
 
-Collector listens on **http://localhost:3000**. Data persists in the `warehouse-data` Docker volume.
+Collector listens on **[http://localhost:3000](http://localhost:3000)**. Data persists in the `warehouse-data` Docker volume.
 
 Serve the UI locally (separate terminal), for example:
 
@@ -28,13 +30,13 @@ Serve the UI locally (separate terminal), for example:
 npx --yes serve lab_site -p 4173
 ```
 
-Edit **`lab_site/js/nexus-env.js`** and set the collector URL to match where the API runs (for Docker Compose, `http://localhost:3000` is usually correct). Redeploy or hard-refresh the browser after changing it.
+Edit `**lab_site/js/nexus-env.js**` and set the collector URL to match where the API runs (for Docker Compose, `http://localhost:3000` is usually correct). Redeploy or hard-refresh the browser after changing it.
 
-Optionally set **`CORS_ORIGINS`** in `docker-compose.yml` to your static origin, e.g. `http://localhost:4173`.
+Optionally set `**CORS_ORIGINS**` in `docker-compose.yml` to your static origin, e.g. `http://localhost:4173`.
 
 ## Frontend API URL
 
-Scripts load **`lab_site/js/nexus-env.js`** first. It sets:
+Scripts load `**lab_site/js/nexus-env.js**` first. It sets:
 
 - `window.NEXUS_COLLECT_BASE` — kinetic + label POSTs
 - `window.NEXUS_DASH_API` — dashboard `/summary` fetch
@@ -49,16 +51,16 @@ Or override only the dashboard: `window.NEXUS_DASH_API`.
 
 ## Static hosting (lab only)
 
-Point **Netlify**, **Cloudflare Pages**, or **Vercel** at the **`lab_site`** directory (no build step required). Publish URL becomes your “share with colleagues” link.
+Point **Netlify**, **Cloudflare Pages**, or **Vercel** at the `**lab_site`** directory (no build step required). Publish URL becomes your “share with colleagues” link.
 
 After deploy:
 
 1. Deploy the collector to a **public HTTPS** URL (see below).
-2. Update **`nexus-env.js`** (or inline `NEXUS_API_BASE`) to that URL and redeploy the static site.
+2. Update `**nexus-env.js`** (or inline `NEXUS_API_BASE`) to that URL and redeploy the static site.
 
 ## Collector on Fly.io (example)
 
-From **`collector/`** (where the `Dockerfile` lives):
+From `**collector/`** (where the `Dockerfile` lives):
 
 ```bash
 cd collector
@@ -69,7 +71,7 @@ fly volumes create warehouse_data --size 1 --region iad
 Set on the app:
 
 - `WAREHOUSE_PATH=/data/warehouse.jsonl`
-- Mount volume **`warehouse_data`** → **`/data`**
+- Mount volume `**warehouse_data**` → `**/data**`
 - `CORS_ORIGINS=https://your-netlify-site.netlify.app` (your static origin)
 
 ```bash
@@ -77,15 +79,15 @@ fly secrets set CORS_ORIGINS="https://your-static-origin.example.com"
 fly deploy
 ```
 
-Note the HTTPS app URL (e.g. `https://nexus-collector.fly.dev`) and put it in **`nexus-env.js`**, then redeploy static files.
+Note the HTTPS app URL (e.g. `https://nexus-collector.fly.dev`) and put it in `**nexus-env.js**`, then redeploy static files.
 
 ## Collector on Railway / Render
 
-Create a **Web Service** from this repo, root directory **`collector`**, start command **`npm start`**, attach a **persistent disk** mounted at `/data`, set `WAREHOUSE_PATH=/data/warehouse.jsonl` and `CORS_ORIGINS` as above.
+Create a **Web Service** from this repo, root directory `**collector`**, start command `**npm start`**, attach a **persistent disk** mounted at `/data`, set `WAREHOUSE_PATH=/data/warehouse.jsonl` and `CORS_ORIGINS` as above.
 
 ## Backups
 
-Copy **`warehouse.jsonl`** (or the mounted volume) on a schedule; it is the full dataset.
+Copy `**warehouse.jsonl`** (or the mounted volume) on a schedule; it is the full dataset.
 
 ## Security note
 
