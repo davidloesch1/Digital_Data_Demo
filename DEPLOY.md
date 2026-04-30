@@ -85,6 +85,22 @@ Note the HTTPS app URL (e.g. `https://nexus-collector.fly.dev`) and put it in `*
 
 Create a **Web Service** from this repo, root directory `**collector`**, start command `**npm start`**, attach a **persistent disk** mounted at `/data`, set `WAREHOUSE_PATH=/data/warehouse.jsonl` and `CORS_ORIGINS` as above.
 
+### Railway: persistent volume (warehouse JSONL)
+
+Without a **volume**, `warehouse.jsonl` lives on the container filesystem and is **wiped on redeploy**. Use a volume so `/collect` appends survive restarts and new deployments.
+
+1. In the Railway project, open your **collector** service → **Settings** (or use **⌘K** / right‑click the canvas → create a **Volume** and attach it to this service).
+2. **Mount path:** `/data` (must match what the app uses). This repo’s `Dockerfile` defaults `WAREHOUSE_PATH=/data/warehouse.jsonl`.
+3. **Variables** on the same service:
+   - `WAREHOUSE_PATH=/data/warehouse.jsonl` (redundant with the Dockerfile default but explicit is clearer).
+   - `CORS_ORIGINS=https://your-static-site.vercel.app` (comma‑separate multiple origins if needed).
+4. **Redeploy** the service after the volume is attached. Volumes are mounted at **container start**, not during the image build ([Railway volumes](https://docs.railway.com/volumes)).
+5. **Verify:** `GET https://<your-collector>.up.railway.app/health` — after at least one successful `POST /collect`, `"warehouse": true` means the file exists on disk (usually under the mounted path).
+
+At runtime, Railway sets `RAILWAY_VOLUME_MOUNT_PATH` to your mount path (for logging or future use). Keeping `WAREHOUSE_PATH=/data/warehouse.jsonl` is enough when the volume mount is `/data`.
+
+**Note:** If the Node process ran as a non‑root user, you might need `RAILWAY_RUN_UID=0` so the process can write the volume (see Railway docs). The provided `node:alpine` image runs as root by default.
+
 ## Backups
 
 Copy `**warehouse.jsonl`** (or the mounted volume) on a schedule; it is the full dataset.

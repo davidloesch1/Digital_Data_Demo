@@ -8,6 +8,13 @@ const PORT = Number(process.env.PORT) || 3000;
 const WAREHOUSE_PATH =
     process.env.WAREHOUSE_PATH || path.join(process.cwd(), 'warehouse.jsonl');
 
+const warehouseDir = path.dirname(WAREHOUSE_PATH);
+try {
+    fs.mkdirSync(warehouseDir, { recursive: true });
+} catch (e) {
+    console.error(`Collector: could not create warehouse dir ${warehouseDir}:`, e.message);
+}
+
 /** Browser Origin has no path/trailing slash; env entries often mistakenly include one. */
 function normalizeOrigin(value) {
     if (!value || typeof value !== 'string') return '';
