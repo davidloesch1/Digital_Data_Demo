@@ -8,11 +8,29 @@ const PORT = Number(process.env.PORT) || 3000;
 const WAREHOUSE_PATH =
     process.env.WAREHOUSE_PATH || path.join(process.cwd(), 'warehouse.jsonl');
 
+/** Browser Origin has no path/trailing slash; env entries often mistakenly include one. */
+function normalizeOrigin(value) {
+    if (!value || typeof value !== 'string') return '';
+    return value.trim().replace(/\/+$/, '');
+}
+
 const corsOriginsEnv = process.env.CORS_ORIGINS;
 let corsMiddleware = cors();
 if (corsOriginsEnv && corsOriginsEnv.trim() !== '' && corsOriginsEnv.trim() !== '*') {
-    const allowed = corsOriginsEnv.split(',').map((s) => s.trim()).filter(Boolean);
-    corsMiddleware = cors({ origin: allowed });
+    const allowed = corsOriginsEnv
+        .split(',')
+        .map((s) => normalizeOrigin(s))
+        .filter(Boolean);
+    if (allowed.length > 0) {
+        corsMiddleware = cors({
+            origin(origin, cb) {
+                // curl / server-side checks often omit Origin
+                if (!origin) return cb(null, true);
+                if (allowed.includes(normalizeOrigin(origin))) return cb(null, true);
+                return cb(null, false);
+            },
+        });
+    }
 }
 
 const app = express();
