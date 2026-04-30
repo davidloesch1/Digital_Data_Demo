@@ -35,7 +35,10 @@
     <header class="dash-topbar" role="banner">
         <div class="dash-topbar__brand">Nexus<span class="text-primary">Intelligence</span></div>
         <nav class="dash-topbar__actions" aria-label="Dashboard navigation">
-            <a class="dash-nav-link" href="index.html">← Back to Challenges</a>
+            <a class="dash-nav-link" href="challenges.html">← Back to Challenges</a>
+            <button type="button" class="btn-dash-info" id="btn-dash-how-it-works" aria-haspopup="dialog" aria-controls="dash-info-modal">
+                How this works
+            </button>
             <button type="button" class="btn-refresh btn-refresh--top" id="btn-refresh-cloud">Refresh data</button>
         </nav>
     </header>
@@ -193,6 +196,62 @@
             </div>
         </main>
     </div>
+
+    <dialog id="dash-info-modal" class="dash-modal" aria-labelledby="dash-info-modal-title" aria-describedby="dash-info-modal-desc">
+        <div class="dash-modal__inner">
+            <header class="dash-modal__header">
+                <div>
+                    <p class="dash-modal__eyebrow">Discovery dashboard</p>
+                    <h2 id="dash-info-modal-title" class="dash-modal__title">Fingerprints, warehouse, and charts</h2>
+                    <p id="dash-info-modal-desc" class="dash-modal__lede">
+                        A short guide to how kinetic fingerprints are produced, how they land in this view, and how to interpret what you see.
+                    </p>
+                </div>
+                <form method="dialog" class="dash-modal__close-form">
+                    <button type="submit" class="dash-modal__close" aria-label="Close">Close</button>
+                </form>
+            </header>
+
+            <div class="dash-modal__body">
+                <section class="dash-modal__section" aria-labelledby="dash-info-h-pipeline">
+                    <h3 id="dash-info-h-pipeline" class="dash-modal__h">1 · From sessions to fingerprints</h3>
+                    <p>
+                        In the lab, FullStory captures interaction bundles (pointer moves, scrolls, etc.). A web worker normalizes those events into short motion features, runs them through a trained sequence model, and emits a <strong>16-number vector</strong> (the fingerprint) when movement energy crosses a threshold and a challenge phase label is active.
+                    </p>
+                    <p>
+                        Each capture is written to the collector as JSON (for example in <code>warehouse.jsonl</code>) with fields such as <code>label</code>, <code>session_url</code>, and <code>fingerprint</code>. This dashboard loads that warehouse via <code>/summary</code>—it does not recompute embeddings; it <strong>visualizes what was stored</strong>.
+                    </p>
+                </section>
+
+                <section class="dash-modal__section" aria-labelledby="dash-info-h-feed">
+                    <h3 id="dash-info-h-feed" class="dash-modal__h">2 · How fingerprints feed these charts</h3>
+                    <ul class="dash-modal__list">
+                        <li><strong>Behavioral cloud</strong> — Uses kinetic rows only. Your filters choose which rows enter the analysis. Optionally rows are averaged <em>per session</em> or <em>per visitor</em> before clustering. <strong>PCA</strong> projects the 16-D vectors onto two axes (PC1 / PC2) so points can be plotted; <strong>k-means</strong> assigns cluster colors in that same plane.</li>
+                        <li><strong>Session radar</strong> — Summarizes the <strong>selected session</strong> using kinetic rows (aggregated signal shape), so you can compare “persona” intensity across a few interpretive dimensions.</li>
+                        <li><strong>Parallel coordinates</strong> — Draws the <strong>full 16 dimensions</strong> per kinetic row (min–max scaled in the current warehouse), so you see shape beyond what PCA compresses.</li>
+                        <li><strong>Dimension strips</strong> — One small chart per fingerprint coordinate (0–15). You can view session means, visitor means, or raw per-row values depending on the Units control.</li>
+                    </ul>
+                </section>
+
+                <section class="dash-modal__section" aria-labelledby="dash-info-h-read">
+                    <h3 id="dash-info-h-read" class="dash-modal__h">3 · How to read the charts</h3>
+                    <ul class="dash-modal__list">
+                        <li><strong>Stats row</strong> — High-level counts: kinetic rows loaded, number of clusters requested (subject to how many points you have), distinct sessions, and a coarse integrity hint.</li>
+                        <li><strong>Cloud scatter</strong> — Distance in the plot is similarity in the <em>PCA plane</em> (variance directions), not raw finger distance in all 16 axes. Same color = same k-means cluster. Click a point to drive session selection and the radar.</li>
+                        <li><strong>PC1 / PC2 caption</strong> — If you see a “fallback” note, the view is plotting two raw embedding dimensions instead of PCA—usable for demos with few points, but interpret cautiously.</li>
+                        <li><strong>Radar</strong> — Read as a <strong>profile</strong> for the chosen session, not a universal scorecard; it encodes how kinetic signals load into the archetype axes used here.</li>
+                        <li><strong>Parallel + strips</strong> — Use these when you care about <strong>specific embedding dimensions</strong> or comparing sessions side by side along one axis at a time.</li>
+                    </ul>
+                </section>
+            </div>
+
+            <footer class="dash-modal__footer">
+                <form method="dialog">
+                    <button type="submit" class="btn-refresh btn-refresh--top dash-modal__cta">Got it</button>
+                </form>
+            </footer>
+        </div>
+    </dialog>
 
     <script src="js/nexus-env.js"></script>
     <script src="js/fingerprint-viz.js"></script>

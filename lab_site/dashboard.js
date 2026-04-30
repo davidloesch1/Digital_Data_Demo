@@ -62,6 +62,7 @@
         if (U.startsWith("FRICTION")) return "friction-persistence";
         if (U.startsWith("READING") || U === "RETENTION") return "reading-behavior";
         if (U.startsWith("COMPARISON") || U === "BRIEF") return "comparison-choice";
+        if (U.startsWith("ARCHETYPE")) return "archetype-lab";
         return "unknown";
     }
 
@@ -141,7 +142,7 @@
                 kind: "aggregate",
                 units: [],
                 hint: cf
-                    ? "No kinetic rows for this challenge filter."
+                    ? "No kinetic fingerprints for this module—only \"kinetic\" rows appear here, not SPEED_* phase labels. Keyboard-heavy flows used to skip capture when pointer motion was flat; reload and run the lab again to collect new rows."
                     : "No kinetic fingerprints yet — complete a challenge to populate strips.",
             };
         }
@@ -1209,6 +1210,10 @@
             o.textContent = c.title || c.id;
             sel.appendChild(o);
         });
+        var hubOpt = document.createElement("option");
+        hubOpt.value = "archetype-lab";
+        hubOpt.textContent = "Challenge hub";
+        sel.appendChild(hubOpt);
         var demoOpt = document.createElement("option");
         demoOpt.value = "demo";
         demoOpt.textContent = "Archetype lab (demo.html)";
@@ -1252,6 +1257,10 @@
             o.textContent = c.title || c.id;
             sel.appendChild(o);
         });
+        var hubOptDim = document.createElement("option");
+        hubOptDim.value = "archetype-lab";
+        hubOptDim.textContent = "Challenge hub";
+        sel.appendChild(hubOptDim);
         var demoOpt = document.createElement("option");
         demoOpt.value = "demo";
         demoOpt.textContent = "Archetype lab (demo.html)";
@@ -1280,7 +1289,26 @@
         sel.value = "";
     }
 
+    function setupHowItWorksModal() {
+        var btn = $("btn-dash-how-it-works");
+        var dlg = $("dash-info-modal");
+        if (!btn || !dlg) return;
+        if (typeof dlg.showModal !== "function") {
+            btn.hidden = true;
+            return;
+        }
+        btn.addEventListener("click", function () {
+            dlg.showModal();
+        });
+        dlg.addEventListener("close", function () {
+            try {
+                btn.focus();
+            } catch (_e) {}
+        });
+    }
+
     function init() {
+        setupHowItWorksModal();
         var radarCanvas = $("radarChart");
         if (typeof NexusDataCards !== "undefined" && NexusDataCards.radarArchetype) {
             radarCtrl = NexusDataCards.radarArchetype.create(radarCanvas);

@@ -5,7 +5,7 @@ const CONFIG = {
     WINDOW_SIZE: 50,
     MATCH_THRESHOLD: 0.96,        // Slightly stricter
     SMOOTHING_WINDOW: 5,
-    ENERGY_THRESHOLD: 0.05,       // 👈 MINIMUM movement required to trigger AI (Adjustable)
+    ENERGY_THRESHOLD: 0.00,       // 👈 MINIMUM movement required to trigger AI (Adjustable)
     INFERENCE_FREQUENCY: 20,      // Check every 20 events
     WEIGHTS_PATH: 'model_weights.json',
     SIGNATURES_PATH: 'signatures.json'
@@ -28,15 +28,21 @@ let collectBase = "http://localhost:3000";
 
 /**
  * Calculates "Kinetic Energy" in the buffer.
- * Sums the Euclidean distance between all points in the window.
+ * Uses pointer displacement plus (when planar motion is tiny) a small boost per step so
+ * keyboard-heavy labs (e.g. speed–accuracy) still accumulate enough signal once the window is full.
  */
 function calculateEnergy(buffer) {
     let energy = 0;
     for (let i = 1; i < buffer.length; i++) {
         const dx = buffer[i][1] - buffer[i-1][1];
         const dy = buffer[i][2] - buffer[i-1][2];
-        // Pythagorean distance
-        energy += Math.sqrt(dx * dx + dy * dy);
+        const planar = Math.sqrt(dx * dx + dy * dy);
+        energy += planar;
+        const dtFeat = buffer[i][3] - buffer[i-1][3];
+        energy += Math.abs(dtFeat) * 0.18;
+        if (planar < 1e-12) {
+            energy += 0.00115;
+        }
     }
     return energy;
 }

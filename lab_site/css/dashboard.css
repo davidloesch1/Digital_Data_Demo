@@ -540,3 +540,159 @@ main > h1 {
         grid-template-columns: 1fr;
     }
 }
+
+/* Info modal (dashboard “How this works”) */
+.btn-dash-info {
+    margin-top: 0;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    font-family: inherit;
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+}
+.btn-dash-info:hover {
+    background: rgba(99, 102, 241, 0.12);
+    border-color: rgba(99, 102, 241, 0.45);
+}
+.btn-dash-info:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+
+.dash-modal {
+    max-width: min(720px, calc(100vw - 24px));
+    width: 100%;
+    max-height: min(85vh, 900px);
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    background: var(--surface);
+    color: var(--text);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+}
+.dash-modal::backdrop {
+    background: rgba(15, 23, 42, 0.78);
+    backdrop-filter: blur(4px);
+}
+.dash-modal__inner {
+    display: flex;
+    flex-direction: column;
+    max-height: inherit;
+}
+.dash-modal__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 22px 22px 12px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.dash-modal__eyebrow {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin: 0 0 6px;
+}
+.dash-modal__title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+}
+.dash-modal__lede {
+    font-size: 14px;
+    color: var(--muted);
+    line-height: 1.5;
+    margin: 0;
+}
+.dash-modal__close-form {
+    margin: 0;
+    flex-shrink: 0;
+}
+.dash-modal__close {
+    margin: 0;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.2);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+}
+.dash-modal__close:hover {
+    background: var(--border);
+}
+.dash-modal__close:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+}
+.dash-modal__body {
+    padding: 18px 22px 8px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    font-size: 14px;
+    line-height: 1.55;
+    color: #cbd5e1;
+}
+.dash-modal__section {
+    margin-bottom: 20px;
+}
+.dash-modal__section:last-child {
+    margin-bottom: 8px;
+}
+.dash-modal__h {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 10px;
+    letter-spacing: -0.02em;
+}
+.dash-modal__section p {
+    margin: 0 0 12px;
+}
+.dash-modal__section p:last-child {
+    margin-bottom: 0;
+}
+.dash-modal__section code {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    background: rgba(0, 0, 0, 0.35);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #e2e8f0;
+}
+.dash-modal__list {
+    margin: 0;
+    padding-left: 1.15rem;
+}
+.dash-modal__list li {
+    margin-bottom: 10px;
+}
+.dash-modal__list li:last-child {
+    margin-bottom: 0;
+}
+.dash-modal__footer {
+    padding: 14px 22px 20px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.dash-modal__footer form {
+    margin: 0;
+    display: flex;
+    justify-content: flex-end;
+}
+.dash-modal__cta {
+    min-width: 120px;
+}

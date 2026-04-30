@@ -78,6 +78,65 @@ html {
 .site-nav__text[href]:hover {
     text-decoration: underline;
 }
+.site-nav__link--cta {
+    padding: 0.5rem 1rem;
+    border-radius: 0.65rem;
+    background: var(--primary);
+    color: #fff !important;
+}
+.site-nav__link--cta:hover {
+    background: var(--primary-hover);
+    text-decoration: none;
+}
+
+.site-main--landing {
+    max-width: 52rem;
+    width: 100%;
+    padding-top: 2rem;
+    padding-bottom: 4rem;
+}
+.site-hero--marketing h1 {
+    font-size: 2.5rem;
+    max-width: 40rem;
+}
+.site-hero__lead {
+    font-size: 1.125rem;
+    line-height: 1.65;
+    color: var(--text-muted);
+    margin: 0 0 1.75rem;
+}
+.landing-points {
+    margin: 0 0 2rem;
+    padding-left: 1.25rem;
+    color: var(--text-main);
+    line-height: 1.65;
+    font-size: 1rem;
+}
+.landing-points li {
+    margin-bottom: 0.75rem;
+}
+.landing-points li:last-child {
+    margin-bottom: 0;
+}
+.landing-points strong {
+    color: var(--text-main);
+}
+.home-cta {
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem 1.5rem;
+}
+.landing-secondary-link {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: var(--primary);
+    text-decoration: none;
+}
+.landing-secondary-link:hover {
+    text-decoration: underline;
+}
 
 /* --- Home --- */
 .site-main {
@@ -99,9 +158,6 @@ html {
 .site-hero {
     max-width: 42rem;
     margin-bottom: 2rem;
-}
-.home-cta {
-    margin: 0;
 }
 .btn-cta {
     display: inline-block;

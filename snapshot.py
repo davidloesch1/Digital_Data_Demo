@@ -4,6 +4,7 @@ def create_snapshot():
     # Files we care about
     targets = [
         'lab_site/index.html',
+        'lab_site/challenges.html',
         'lab_site/challenge_modules/reading-behavior/reading-behavior.html',
         'lab_site/challenge_modules/comparison-choice/comparison-choice.html',
         'lab_site/challenge_modules/friction-persistence/friction-persistence.html',

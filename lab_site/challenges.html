@@ -3,10 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexus Research | Behavioral intelligence for the web</title>
+    <title>Nexus Research | Challenges</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/site.css">
     <script>
+        window.NEXUS_CHALLENGE_MODULE = "archetype-lab";
         window['_fs_host'] = 'fullstory.com';
         window['_fs_script'] = 'edge.fullstory.com/s/fs.js';
         window['_fs_org'] = 'o-1A7J9C-na1';
@@ -33,26 +34,31 @@
     <header class="site-header">
         <a class="site-logo" href="index.html">Nexus<span>Research</span></a>
         <nav class="site-nav">
+            <a class="site-nav__text" href="index.html">Overview</a>
             <a class="site-nav__text" href="dashboard.html">Results dashboard</a>
-            <a class="site-nav__link site-nav__link--cta" href="challenges.html">Enter the lab</a>
         </nav>
     </header>
 
-    <main class="site-main site-main--landing">
-        <section class="site-hero site-hero--marketing" aria-labelledby="landing-title">
-            <span class="site-hero__eyebrow">Research-grade behavioral capture</span>
-            <h1 id="landing-title">Turn movement and intent into <span class="accent">signals you can cluster</span></h1>
-            <p class="site-hero__lead">Nexus Research runs focused web challenges—reading, comparison, friction, speed, and more—while streaming coarse interaction bundles into in-browser models. Fingerprints land in your warehouse for cohort views, dashboards, and archetype discovery alongside FullStory sessions.</p>
-            <ul class="landing-points" role="list">
-                <li><strong>Kinetic fingerprints</strong> — Short embeddings summarize pointer and scroll dynamics during labeled phases.</li>
-                <li><strong>Warehouse-first</strong> — JSON lines feed a summary API for PCA, k-means, and session-level radar views.</li>
-                <li><strong>FullStory-aligned</strong> — Same capture session can power replay links and downstream segmentation experiments.</li>
-            </ul>
-            <p class="home-cta">
-                <a class="btn-cta" href="challenges.html">Browse challenges</a>
-                <a class="landing-secondary-link" href="dashboard.html">Open results dashboard</a>
-            </p>
+    <main class="site-main site-main--hub">
+        <section class="site-hero" aria-labelledby="hero-title">
+            <span class="site-hero__eyebrow">Nexus Research lab</span>
+            <h1 id="hero-title">Challenges that show how people <span class="accent">read, move, and decide</span> on the web.</h1>
+            <p>Pick a module to run the exercise. In-browser models (where enabled) can use the same session as your product analytics. Open the pro dashboard to explore how cohorts cluster when you connect a summary service.</p>
         </section>
+
+        <div id="challenge-grid" class="challenge-grid" aria-label="Challenges"></div>
     </main>
+
+    <script src="js/nexus-env.js"></script>
+    <script src="js/behavioral-service.js"></script>
+    <script src="js/metrics.js"></script>
+    <script src="js/home.js"></script>
+    <script>
+        (function () {
+            if (typeof BehavioralService !== "undefined" && BehavioralService.setLabel) {
+                BehavioralService.setLabel("ARCHETYPE_HUB");
+            }
+        })();
+    </script>
 </body>
 </html>
