@@ -1,5 +1,0 @@
-# Used when the service Root Directory is the repo root (not collector/).
-# Railpack/Nixpacks default start is `node index.js`; root index.js loads collector/collector.js.
-[deploy]
-startCommand = "node index.js"
-healthcheckPath = "/health"

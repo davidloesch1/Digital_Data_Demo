@@ -123,7 +123,11 @@ Note the HTTPS app URL (e.g. `https://nexus-collector.fly.dev`) and put it in `*
 
 ## Collector on Railway / Render
 
-Create a **Web Service** from this repo, root directory `**collector`**, start command `**npm start`**, attach a **persistent disk** mounted at `/data`, set `WAREHOUSE_PATH=/data/warehouse.jsonl` and `CORS_ORIGINS` as above.
+Create a **Web Service** from this repo. For Railway UI pitfalls (root directory, Dockerfile vs Railpack, build logs), see **`docs/RAILWAY_COLLECTOR.md`**.
+
+For **Postgres / `/v1` only**, you do **not** need a persistent JSONL volume—see **`docs/PRODUCTION_ORGS.md`**.
+
+Legacy one-liner: root directory `**collector`**, Docker build, attach a **persistent disk** at `/data` only if you still use **`/collect`** + `WAREHOUSE_PATH=/data/warehouse.jsonl` and **`CORS_ORIGINS`** as above.
 
 ### Railway: persistent volume (warehouse JSONL)
 

@@ -6,6 +6,8 @@ Use this when you want **real product behavior**: each customer’s events live 
 
 ## 1. Collector (e.g. Railway)
 
+Railway UI (root directory, Dockerfile, “error deploying from source”): **`docs/RAILWAY_COLLECTOR.md`**.
+
 1. Add **PostgreSQL** (Railway plugin or external URL) and set **`DATABASE_URL`** on the collector service.
 2. Set **`PUBLISHABLE_KEY_PEPPER`** to a long random secret (same value every deploy; never put it in the browser).
 3. Set **`CORS_ORIGINS`** to your **exact** site origins (e.g. `https://your-app.vercel.app`).
