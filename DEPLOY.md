@@ -5,14 +5,21 @@ Target: **one collector API** (Node + JSONL on disk) and **static hosting** for 
 ## Environment variables (collector)
 
 
-| Variable         | Purpose                                                                        | Default                   |
-| ---------------- | ------------------------------------------------------------------------------ | ------------------------- |
-| `PORT`           | HTTP port                                                                      | `3000`                    |
-| `WAREHOUSE_PATH` | Absolute path to append-only JSONL                                             | `./warehouse.jsonl` (cwd) |
-| `CORS_ORIGINS`   | Comma-separated allowed browser origins. Omit or `*` for open CORS (dev only). | (open)                    |
+| Variable                   | Purpose                                                                                                                                 | Default              |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `PORT`                     | HTTP port                                                                                                                               | `3000`               |
+| `WAREHOUSE_PATH`         | Absolute path to append-only JSONL                                                                                                      | `./warehouse.jsonl`  |
+| `CORS_ORIGINS`             | Comma-separated allowed browser origins. Omit or `*` for open CORS (dev only).                                                          | (open)               |
+| `WAREHOUSE_MAX_BYTES`      | After each write, the oldest JSONL lines are removed until the file is under ~90% of this size (keeps disk usage bounded).                | `524288000` (500 MiB) |
+| `SUMMARY_MAX_LINES`      | `GET /summary` returns only the **most recent** *N* non-empty lines (parsed JSON), so the dashboard payload stays small.                    | `1000`               |
+| `SUMMARY_QUERY_LIMIT_CAP` | Maximum allowed `?limit=` on `/summary` (caps ad-hoc browser queries).                                                                  | `5000`               |
 
+Endpoints: `POST /collect`, `GET /summary` (optional `?limit=`), `POST /discard`, `GET /health`.
 
-Endpoints: `POST /collect`, `GET /summary`, `POST /discard`, `GET /health`.
+### Summary vs disk
+
+- **Disk:** every event is still appended; when the file exceeds `WAREHOUSE_MAX_BYTES`, the **head** of the file is dropped in full lines until size is back under the cap. Oldest data falls off first.
+- **Dashboard:** by default the UI only **fetches** the last `SUMMARY_MAX_LINES` rows. That matches ~1000 points in **kinetic** (per-row) mode. In **per session** or **per visitor** mode, one session can own many kinetic rows—if the list looks sparse, raise `SUMMARY_MAX_LINES` (e.g. `15000`) so the last N **lines** still cover enough distinct sessions.
 
 ## Local Docker (API + volume)
 
