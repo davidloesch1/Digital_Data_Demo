@@ -76,6 +76,8 @@ Scripts load **`js/nexus-env.js`** (under **`lab_console/`** or on a customer si
 
 Pages load **`js/nexus-env.secrets.js`** then **`js/nexus-env.js`**. Override inline **before** the secrets script, or use Vercel env + `npm run build` (see **`docs/PRODUCTION_ORGS.md`**).
 
+**Customer sites (minimal snippet):** copy **`packages/browser/nexus-snippet.js`** to your static host (or serve from this repo path) and follow **`packages/browser/README.md`** — inline **`NEXUS_PUBLISHABLE_KEY`** + **`NEXUS_API_BASE`**, then one **`<script src="…/nexus-snippet.js">`** for coarse kinetic ingest without the full lab UI.
+
 ```html
 <script>window.NEXUS_PUBLISHABLE_KEY = "nx_pub_…";</script>
 <script src="js/nexus-env.secrets.js"></script>

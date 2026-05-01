@@ -1,8 +1,0 @@
-{
-  "name": "nexus-lab-site",
-  "private": true,
-  "description": "Static lab; build step injects Vercel env into js/nexus-env.secrets.js",
-  "scripts": {
-    "build": "node scripts/inject-nexus-env.js"
-  }
-}

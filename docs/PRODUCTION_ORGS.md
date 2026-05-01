@@ -36,6 +36,8 @@ The console tree loads **`js/nexus-env.secrets.js`** then **`js/nexus-env.js`**.
 
 **Product UI:** **`console/index.html`**, **`dashboard.html`**, **`segmentation.html`** live under **`lab_console/`**.
 
+**Instrumented customer pages:** minimal **`packages/browser/nexus-snippet.js`** + inline config — see **`packages/browser/README.md`**.
+
 ### Option A — inline before `nexus-env.secrets.js` (simplest)
 
 ```html
