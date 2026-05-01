@@ -1171,8 +1171,16 @@
 
     async function fetchData() {
         try {
-            var url = API_BASE.replace(/\/?$/, "") + "/summary";
-            var response = await fetch(url);
+            var summaryPath =
+                (typeof window !== "undefined" && window.NEXUS_SUMMARY_PATH) || "/summary";
+            var url = API_BASE.replace(/\/?$/, "") + summaryPath;
+            var pk =
+                typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+                    ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+                    : "";
+            var fetchOpts = {};
+            if (pk) fetchOpts.headers = { Authorization: "Bearer " + pk };
+            var response = await fetch(url, fetchOpts);
             if (!response.ok) throw new Error("HTTP " + response.status);
             var data = await response.json();
 

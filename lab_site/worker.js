@@ -25,6 +25,10 @@ let currentUserKey = null;
 let currentSessionUrl = "unknown";
 /** Set from main thread CONFIG message (matches window.NEXUS_COLLECT_BASE). */
 let collectBase = "http://localhost:3000";
+/** Relative path e.g. /collect or /v1/ingest */
+let ingestPath = "/collect";
+/** Bearer token for /v1/ingest (empty for legacy file ingest). */
+let publishableKey = "";
 
 /**
  * Calculates "Kinetic Energy" in the buffer.
@@ -109,6 +113,13 @@ self.onmessage = async (e) => {
         if (e.data.collectBase) {
             collectBase = String(e.data.collectBase).replace(/\/?$/, "");
         }
+        if (e.data.ingestPath != null && String(e.data.ingestPath).trim() !== "") {
+            let p = String(e.data.ingestPath).trim();
+            ingestPath = p.indexOf("/") === 0 ? p : "/" + p;
+        }
+        if (e.data.publishableKey != null) {
+            publishableKey = String(e.data.publishableKey).trim();
+        }
         return;
     }
     if (type === 'SET_LABEL') {
@@ -190,9 +201,11 @@ self.onmessage = async (e) => {
                     if (currentUserKey) {
                         kineticPayload.nexus_user_key = currentUserKey;
                     }
-                    fetch(collectBase + '/collect', {
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (publishableKey) headers['Authorization'] = 'Bearer ' + publishableKey;
+                    fetch(collectBase + ingestPath, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers,
                         body: JSON.stringify(kineticPayload)
                     }).catch(() => {});
                 }

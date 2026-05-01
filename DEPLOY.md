@@ -58,8 +58,16 @@ Optionally set `**CORS_ORIGINS**` in `docker-compose.yml` to your static origin,
 
 Scripts load `**lab_site/js/nexus-env.js**` first. It sets:
 
-- `window.NEXUS_COLLECT_BASE` — kinetic + label POSTs
-- `window.NEXUS_DASH_API` — dashboard `/summary` fetch
+- `window.NEXUS_COLLECT_BASE` — collector origin for kinetic + label POSTs
+- `window.NEXUS_DASH_API` — dashboard warehouse fetch (same host as collector unless overridden)
+- `window.NEXUS_PUBLISHABLE_KEY` *(optional)* — when set before `nexus-env.js`, defaults switch to **`/v1/ingest`** and **`/v1/summary`** with `Authorization: Bearer …` (multi-tenant Postgres). Override paths with `NEXUS_INGEST_PATH` / `NEXUS_SUMMARY_PATH` if needed.
+
+Example before `nexus-env.js` on a staging page:
+
+```html
+<script>window.NEXUS_PUBLISHABLE_KEY = "nx_pub_…";</script>
+<script src="js/nexus-env.js"></script>
+```
 
 You can set a single base before `nexus-env.js`:
 

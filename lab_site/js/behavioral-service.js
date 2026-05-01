@@ -11,10 +11,25 @@ const BehavioralService = (function () {
     var COLLECT_BASE_RAW =
         (typeof window !== "undefined" && window.NEXUS_COLLECT_BASE) || "http://localhost:3000";
     var COLLECT_BASE = String(COLLECT_BASE_RAW).replace(/\/?$/, "");
+    var INGEST_PATH =
+        (typeof window !== "undefined" && window.NEXUS_INGEST_PATH) || "/collect";
+    var PUBLISHABLE_KEY =
+        typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+            ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+            : "";
+
     worker.postMessage({
         type: "CONFIG",
         collectBase: COLLECT_BASE,
+        ingestPath: INGEST_PATH,
+        publishableKey: PUBLISHABLE_KEY,
     });
+
+    function ingestHeaders() {
+        var h = { "Content-Type": "application/json" };
+        if (PUBLISHABLE_KEY) h.Authorization = "Bearer " + PUBLISHABLE_KEY;
+        return h;
+    }
 
     /** Challenge id from the host page (matches data/challenges.json). Worker receives the same for kinetic rows. */
     function getChallengeModule() {
@@ -77,9 +92,9 @@ const BehavioralService = (function () {
         if (cm) payload.challenge_module = cm;
         var uk = getUserKey();
         if (uk) payload.nexus_user_key = uk;
-        fetch(COLLECT_BASE + "/collect", {
+        fetch(COLLECT_BASE + INGEST_PATH, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: ingestHeaders(),
             body: JSON.stringify(payload),
         }).catch(function () {});
     }
