@@ -98,6 +98,24 @@ const app = express();
 app.use(corsMiddleware);
 app.use(bodyParser.json({ limit: '2mb' }));
 
+/** Root URL in browser — there is no HTML app here, only API routes. */
+app.get('/', (_req, res) => {
+    res.status(200).json({
+        ok: true,
+        service: 'nexus-collector',
+        message: 'Use GET /health. Ingest: POST /v1/ingest (or legacy POST /collect if enabled).',
+        endpoints: {
+            health: 'GET /health',
+            ingest_v1: 'POST /v1/ingest',
+            summary_v1: 'GET /v1/summary',
+            discard_v1: 'POST /v1/discard',
+            collect_legacy: 'POST /collect',
+            summary_legacy: 'GET /summary',
+            discard_legacy: 'POST /discard',
+        },
+    });
+});
+
 function warehouseExists() {
     return fs.existsSync(WAREHOUSE_PATH);
 }
