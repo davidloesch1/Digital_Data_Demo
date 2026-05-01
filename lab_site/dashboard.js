@@ -76,6 +76,87 @@
         return moduleFromLabel(row.label);
     }
 
+    /** Kinetic row with latest timestamp that has a usable FullStory URL (for session/visitor cloud dots). */
+    function pickLatestKineticWarehouseRow(rows) {
+        if (!rows || !rows.length || !M) return null;
+        var best = null;
+        var bestTs = -Infinity;
+        var i;
+        for (i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            if (!M.isKineticEvent(r) || !normalizeFingerprint(r)) continue;
+            var url = r.session_url;
+            if (!url || String(url).trim() === "" || String(url) === "no-session") continue;
+            var ts = r.timestamp != null ? Number(r.timestamp) : NaN;
+            if (!Number.isFinite(ts)) ts = 0;
+            if (ts >= bestTs) {
+                bestTs = ts;
+                best = r;
+            }
+        }
+        return best;
+    }
+
+    /** Validate stored replay URL from capture (FullStory or other https replay links). */
+    function resolveFullStoryReplayUrl(row) {
+        if (!row) return null;
+        var u = row.session_url;
+        if (u === undefined || u === null) return null;
+        var s = String(u).trim();
+        if (!s || s === "no-session") return null;
+        try {
+            var parsed = new URL(s);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+            return parsed.href;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    function clearFullStoryMomentUI() {
+        var btn = $("btn-fullstory-moment");
+        var hint = $("fullstory-moment-hint");
+        if (btn) {
+            btn.hidden = true;
+            btn.onclick = null;
+        }
+        if (hint) {
+            hint.hidden = true;
+            hint.textContent = "";
+        }
+    }
+
+    function updateFullStoryMomentUI(row) {
+        var btn = $("btn-fullstory-moment");
+        var hint = $("fullstory-moment-hint");
+        if (!btn) return;
+        var url = resolveFullStoryReplayUrl(row);
+        if (url) {
+            btn.hidden = false;
+            btn.onclick = function () {
+                window.open(url, "_blank", "noopener,noreferrer");
+            };
+            if (hint) {
+                hint.hidden = false;
+                hint.textContent =
+                    "Opens the replay link saved with this fingerprint (same moment FullStory exposed when the row was captured).";
+            }
+            return;
+        }
+        btn.hidden = true;
+        btn.onclick = null;
+        if (hint) {
+            if (row) {
+                hint.hidden = false;
+                hint.textContent =
+                    "No replay URL on this row — run the lab with FullStory recording to store session links with each capture.";
+            } else {
+                hint.hidden = true;
+                hint.textContent = "";
+            }
+        }
+    }
+
     function getSelectedModuleFilter() {
         var sel = $("dash-module-filter");
         if (!sel) return "";
@@ -573,9 +654,10 @@
                     var f = normalizeFingerprint(rs[i]);
                     if (f) fps.push(f);
                 }
+                var rep = pickLatestKineticWarehouseRow(rs);
                 return {
                     fp: meanVector(fps),
-                    row: rs[0],
+                    row: rep || rs[0],
                     sid: sid,
                     aggregateKind: "session",
                     userKey: null,
@@ -598,9 +680,10 @@
                     var f = normalizeFingerprint(rs[i]);
                     if (f) fps.push(f);
                 }
+                var rep = pickLatestKineticWarehouseRow(rs);
                 return {
                     fp: meanVector(fps),
-                    row: rs[0],
+                    row: rep || rs[0],
                     sid: M.getSessionKey(rs[0]),
                     aggregateKind: "user",
                     userKey: uk,
@@ -907,10 +990,11 @@
                     var ds = datasets[el.datasetIndex];
                     var pt = ds.data[el.index];
                     if (!pt || !pt.original) return;
+                    var teleportRow = pt.original;
                     if (pt.aggregateKind === "user" && pt.userKey) {
-                        selectUserByVisitorKey(pt.userKey);
+                        selectUserByVisitorKey(pt.userKey, teleportRow);
                     } else {
-                        selectUser(pt.sid);
+                        selectUser(pt.sid, teleportRow);
                     }
                 },
                 scales: {
@@ -967,7 +1051,7 @@
         };
     }
 
-    function selectUserByVisitorKey(uk) {
+    function selectUserByVisitorKey(uk, teleportRowOpt) {
         selectedUserKey = uk;
         selectedSid = null;
         var merged = collectRowsForVisitorKey(uk);
@@ -992,9 +1076,12 @@
 
         if (radarCtrl && radarCtrl.update) radarCtrl.update(merged);
         renderParallelPanel();
+        updateFullStoryMomentUI(
+            teleportRowOpt !== undefined ? teleportRowOpt : pickLatestKineticWarehouseRow(merged)
+        );
     }
 
-    function selectUser(sid) {
+    function selectUser(sid, teleportRowOpt) {
         selectedSid = sid;
         selectedUserKey = null;
         var userEvents = globalSessions[sid];
@@ -1024,6 +1111,9 @@
 
         if (radarCtrl && radarCtrl.update) radarCtrl.update(userEvents);
         renderParallelPanel();
+        updateFullStoryMomentUI(
+            teleportRowOpt !== undefined ? teleportRowOpt : pickLatestKineticWarehouseRow(userEvents)
+        );
     }
 
     function renderSessionList() {
@@ -1095,6 +1185,7 @@
                 $("stat-clusters").textContent = "0";
                 $("stat-sessions").textContent = "0";
                 $("stat-integrity").textContent = "—";
+                clearFullStoryMomentUI();
                 renderSessionList();
                 renderCloud({ clusters: [] }, { x: "PC1", y: "PC2" }, null);
                 renderParallelPanel();
@@ -1183,7 +1274,11 @@
                     return String(a).localeCompare(String(b));
                 });
                 var first = sorted[0];
-                if (first && lastKineticPoints.length) selectUser(first);
+                if (first && lastKineticPoints.length) {
+                    selectUser(first);
+                } else {
+                    clearFullStoryMomentUI();
+                }
             }
 
             renderDimensionCharts(data);
@@ -1191,6 +1286,7 @@
             setStatus(true, "Live · " + data.length + " warehouse rows");
         } catch (err) {
             console.error("Dashboard fetch error:", err);
+            clearFullStoryMomentUI();
             setStatus(false, "Cannot reach API (" + API_BASE + "). Start collector: node collector.js");
         }
     }

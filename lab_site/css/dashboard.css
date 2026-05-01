@@ -467,6 +467,35 @@ main > h1 {
     line-height: 1.55;
     margin: 0;
 }
+.fullstory-hint {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.45;
+    margin: 10px 0 0;
+}
+.fullstory-hint[hidden] {
+    display: none !important;
+}
+.btn-fullstory {
+    margin-top: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(99, 102, 241, 0.65);
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.btn-fullstory:hover {
+    background: rgba(99, 102, 241, 0.28);
+    border-color: rgba(129, 140, 248, 0.9);
+}
+.btn-fullstory[hidden] {
+    display: none !important;
+}
 .card--hook {
     border: 1px dashed rgba(99, 102, 241, 0.55);
     background: rgba(99, 102, 241, 0.06);

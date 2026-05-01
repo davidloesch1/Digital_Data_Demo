@@ -121,7 +121,7 @@
                     </div>
                     <div id="cluster-color-legend" class="cluster-color-legend" aria-label="Cluster colors"></div>
                     <p class="explainer">
-                        <strong>How to read it:</strong> Optionally narrow rows by <strong>challenge module</strong> (derived from labels) and choose whether each dot is a kinetic row, a session mean, or a visitor mean. K-means runs in the PCA plane on that subset. Colors identify clusters (same order as the swatches). Click a dot or a session to highlight paths and update the radar.
+                        <strong>How to read it:</strong> Optionally narrow rows by <strong>challenge module</strong> (derived from labels) and choose whether each dot is a kinetic row, a session mean, or a visitor mean. K-means runs in the PCA plane on that subset. Colors identify clusters (same order as the swatches). Click a dot or a session to highlight paths and update the radar. When FullStory was active during capture, use <strong>Open in FullStory</strong> beside the radar to jump to that replay moment.
                     </p>
                 </div>
 
@@ -135,6 +135,10 @@
                         <div id="archetype-info" class="archetype-info">
                             <div id="user-archetype-label" class="archetype-title">Select a session</div>
                             <p id="user-archetype-desc" class="archetype-desc">Choose a session from the list or click a point in the cloud to decode behavioral DNA from captured rows.</p>
+                            <p id="fullstory-moment-hint" class="fullstory-hint" hidden></p>
+                            <button type="button" id="btn-fullstory-moment" class="btn-fullstory" hidden>
+                                Open in FullStory
+                            </button>
                         </div>
                     </div>
 
