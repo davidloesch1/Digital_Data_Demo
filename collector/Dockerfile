@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY collector.js ./
+COPY tenant-db.js collector.js ./
 
 ENV NODE_ENV=production
 ENV PORT=3000

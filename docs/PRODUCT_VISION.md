@@ -132,3 +132,5 @@ Ship **after** multi-tenant ingest + config + internal ops are boringly reliable
 ## Document status
 
 Living document on the **`product`** branch; revise as we ship slices and learn constraints (CSP, FS URL semantics, billing, etc.).
+
+**Shipped slice:** Postgres-backed **`POST /v1/ingest`** and **`GET /v1/summary`** keyed by publishable key (`collector/` + `DEPLOY.md`). File-based `/collect` remains for the legacy lab path until we migrate clients.

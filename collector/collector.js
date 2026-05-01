@@ -5,6 +5,10 @@ const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
 const readline = require('readline');
+const tenantDbApi = require('./tenant-db.js');
+
+/** @type {{ pool: import('pg').Pool; pepper: string } | null} */
+let tenantContext = null;
 
 const PORT = Number(process.env.PORT) || 3000;
 const WAREHOUSE_PATH =
@@ -93,6 +97,17 @@ function parseSummaryLimit(req) {
     return Math.min(n, SUMMARY_QUERY_LIMIT_CAP);
 }
 
+function extractPublishableKey(req) {
+    const auth = req.headers.authorization;
+    if (auth && typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
+        const t = auth.slice(7).trim();
+        if (t) return t;
+    }
+    const x = req.headers['x-nexus-publishable-key'];
+    if (x) return String(x).trim();
+    return null;
+}
+
 /**
  * Stream file once and keep only the last `n` non-empty lines, parsed as JSON.
  * O(file size) time, O(n) memory.
@@ -162,15 +177,28 @@ async function trimWarehouseIfNeeded() {
 }
 
 /** Health check for load balancers / PaaS */
-app.get('/health', (_req, res) => {
+app.get('/health', async (_req, res) => {
     const st = warehouseStatSafe();
-    res.status(200).json({
+    const body = {
         ok: true,
         warehouse: warehouseExists(),
         warehouse_bytes: st ? st.size : null,
         warehouse_max_bytes: WAREHOUSE_MAX_BYTES,
         summary_max_lines: SUMMARY_MAX_LINES,
-    });
+        multi_tenant: Boolean(tenantContext),
+    };
+    if (tenantContext) {
+        try {
+            await tenantContext.pool.query('SELECT 1');
+            body.database = 'connected';
+        } catch (e) {
+            body.database = 'error';
+            body.database_error = e.message;
+        }
+    } else {
+        body.database = 'not_configured';
+    }
+    res.status(200).json(body);
 });
 
 app.post('/collect', (req, res) => {
@@ -234,8 +262,112 @@ app.post('/discard', (req, res) => {
         .catch(() => res.status(500).send('Discard Error'));
 });
 
-app.listen(PORT, '0.0.0.0', () =>
-    console.log(
-        `🚀 Collector live on :${PORT} | warehouse: ${WAREHOUSE_PATH} | max ${WAREHOUSE_MAX_BYTES}B | summary last ${SUMMARY_MAX_LINES} lines`
-    )
-);
+/** Multi-tenant ingest (JSON body same shape as POST /collect). Requires publishable key. */
+app.post('/v1/ingest', async (req, res) => {
+    if (!tenantContext) {
+        return res.status(503).json({
+            error: 'Multi-tenant ingest not configured',
+            hint: 'Set DATABASE_URL and PUBLISHABLE_KEY_PEPPER on the collector.',
+        });
+    }
+    const rawKey = extractPublishableKey(req);
+    if (!rawKey) {
+        return res.status(401).json({
+            error: 'Missing publishable key',
+            hint: 'Use Authorization: Bearer <nx_pub_...> or X-Nexus-Publishable-Key',
+        });
+    }
+    let resolved;
+    try {
+        resolved = await tenantDbApi.resolvePublishableKey(
+            tenantContext.pool,
+            tenantContext.pepper,
+            rawKey
+        );
+    } catch (e) {
+        console.error('resolvePublishableKey:', e);
+        return res.status(500).json({ error: 'Auth lookup failed' });
+    }
+    if (!resolved) {
+        return res.status(401).json({ error: 'Invalid or revoked publishable key' });
+    }
+    const dnaPackage = { ...req.body };
+    dnaPackage.server_timestamp = new Date().toISOString();
+    dnaPackage.org_slug = resolved.orgSlug;
+    try {
+        await tenantDbApi.insertBehaviorEvent(tenantContext.pool, resolved.orgId, dnaPackage);
+    } catch (e) {
+        console.error('insertBehaviorEvent:', e);
+        return res.status(500).json({ error: 'Storage error' });
+    }
+    console.log(`📥 v1/ingest | org=${resolved.orgSlug} | label=${dnaPackage.label}`);
+    res.status(200).json({ ok: true, stored: true });
+});
+
+/** Org-scoped summary (same response shape as GET /summary). Requires publishable key. */
+app.get('/v1/summary', async (req, res) => {
+    if (!tenantContext) {
+        return res.status(503).json({
+            error: 'Multi-tenant summary not configured',
+            hint: 'Set DATABASE_URL and PUBLISHABLE_KEY_PEPPER on the collector.',
+        });
+    }
+    const rawKey = extractPublishableKey(req);
+    if (!rawKey) {
+        return res.status(401).json({
+            error: 'Missing publishable key',
+            hint: 'Use Authorization: Bearer <nx_pub_...> or X-Nexus-Publishable-Key',
+        });
+    }
+    let resolved;
+    try {
+        resolved = await tenantDbApi.resolvePublishableKey(
+            tenantContext.pool,
+            tenantContext.pepper,
+            rawKey
+        );
+    } catch (e) {
+        console.error('resolvePublishableKey:', e);
+        return res.status(500).json({ error: 'Auth lookup failed' });
+    }
+    if (!resolved) {
+        return res.status(401).json({ error: 'Invalid or revoked publishable key' });
+    }
+    const limit = parseSummaryLimit(req);
+    try {
+        const data = await tenantDbApi.fetchRecentPayloads(tenantContext.pool, resolved.orgId, limit);
+        res.setHeader('X-Summary-Line-Limit', String(limit));
+        res.setHeader('X-Summary-Lines-Returned', String(data.length));
+        res.setHeader('X-Org-Slug', resolved.orgSlug);
+        res.status(200).json(data);
+    } catch (e) {
+        console.error('fetchRecentPayloads:', e);
+        res.status(500).send('Read Error');
+    }
+});
+
+async function start() {
+    if (process.env.DATABASE_URL) {
+        try {
+            tenantContext = await tenantDbApi.createPoolAndMigrate(
+                process.env.DATABASE_URL,
+                process.env.PUBLISHABLE_KEY_PEPPER || ''
+            );
+            console.log('Collector: multi-tenant Postgres enabled (/v1/ingest, /v1/summary)');
+        } catch (e) {
+            console.error('Collector: DATABASE_URL set but Postgres init failed:', e.message);
+            process.exit(1);
+        }
+    }
+    app.listen(PORT, '0.0.0.0', () =>
+        console.log(
+            `🚀 Collector live on :${PORT} | warehouse: ${WAREHOUSE_PATH} | max ${WAREHOUSE_MAX_BYTES}B | summary last ${SUMMARY_MAX_LINES} lines` +
+                (tenantContext ? ' | v1 DB ingest on' : '')
+        )
+    );
+}
+
+start().catch((e) => {
+    console.error(e);
+    process.exit(1);
+});
