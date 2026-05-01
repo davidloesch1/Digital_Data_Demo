@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "my-view",
+  "title": "Example named view (future: save to localStorage / API)",
+  "description": "Holds a connector slice + Vega-Lite. Presets in chart-builder-presets.js can migrate to this format.",
+  "connector": {
+    "schemaVersion": 1,
+    "rowMode": "all",
+    "sessionMode": "all",
+    "sessionKeys": [],
+    "tMin": null,
+    "tMax": null
+  },
+  "vegaLite": {
+    "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+    "data": { "values": "populated at runtime from NEXUS getRows()" },
+    "mark": "point",
+    "encoding": {
+      "x": { "field": "fp0", "type": "quantitative" },
+      "y": { "field": "fp1", "type": "quantitative" }
+    }
+  }
+}

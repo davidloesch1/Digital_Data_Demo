@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Nexus Console</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="../css/console-shell.css" />
+</head>
+<body class="console-page">
+    <header class="console-topbar" role="banner">
+        <a class="console-topbar__brand" href="index.html">Nexus<span>Console</span></a>
+        <nav class="console-topbar__nav" aria-label="Console navigation">
+            <a href="index.html" class="console-topbar__nav--active">Home</a>
+            <a href="../dashboard.html">Dashboard</a>
+            <a href="../segmentation.html">Segmentation</a>
+        </nav>
+    </header>
+    <main class="console-hub-main">
+        <h1 class="console-hub-title">Operator console</h1>
+        <p class="console-hub-lead">
+            Use these tools after you deploy the Nexus snippet and publishable key on the sites you instrument. This app is the operator surface—dashboard,
+            segmentation, and warehouse views—not your end-user pages.
+        </p>
+        <div class="console-hub-grid">
+            <a class="console-hub-card" href="../dashboard.html">
+                <div class="console-hub-card__label">Analyze</div>
+                <h2 class="console-hub-card__title">Discovery dashboard</h2>
+                <p class="console-hub-card__desc">Warehouse-connected clustering, session radar, and fingerprint views for your org’s captures.</p>
+            </a>
+            <a class="console-hub-card" href="../segmentation.html">
+                <div class="console-hub-card__label">Configure</div>
+                <h2 class="console-hub-card__title">Visitor segmentation</h2>
+                <p class="console-hub-card__desc">Stable visitor IDs for Nexus plus FullStory user variables (e.g. <code style="color:#cbd5e1">nexus_cohort</code>).</p>
+            </a>
+        </div>
+    </main>
+</body>
+</html>

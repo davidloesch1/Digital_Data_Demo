@@ -1,5 +1,5 @@
 node_modules/
-lab_site/.env
+lab_console/.env
 venv/
 .DS_Store
 collector/warehouse.jsonl

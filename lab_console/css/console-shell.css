@@ -1,0 +1,112 @@
+/**
+ * Shared chrome for operator-facing pages (console hub, dashboard, segmentation).
+ * Public demo (index, challenges) uses css/site.css only.
+ */
+:root {
+    --console-bg: #0f172a;
+    --console-border: #334155;
+    --console-text: #f8fafc;
+    --console-muted: #94a3b8;
+    --console-primary: #818cf8;
+}
+.console-page {
+    margin: 0;
+    min-height: 100vh;
+    background: var(--console-bg);
+    color: var(--console-text);
+    font-family: "Inter", system-ui, sans-serif;
+}
+.console-topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px 20px;
+    padding: 12px 24px;
+    border-bottom: 1px solid var(--console-border);
+    background: rgba(15, 23, 42, 0.98);
+}
+.console-topbar__brand {
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-size: 1.05rem;
+    color: var(--console-text);
+    text-decoration: none;
+}
+.console-topbar__brand span {
+    color: var(--console-primary);
+}
+.console-topbar__nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+    margin-left: auto;
+}
+.console-topbar__nav a {
+    color: var(--console-muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+.console-topbar__nav a:hover {
+    color: var(--console-text);
+}
+.console-topbar__nav a.console-topbar__nav--active {
+    color: var(--console-primary);
+}
+.console-hub-main {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 40px 24px 64px;
+}
+.console-hub-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    margin: 0 0 8px;
+}
+.console-hub-lead {
+    color: var(--console-muted);
+    font-size: 1rem;
+    line-height: 1.6;
+    margin: 0 0 32px;
+    max-width: 52rem;
+}
+.console-hub-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 20px;
+}
+.console-hub-card {
+    display: block;
+    padding: 22px 22px 20px;
+    border-radius: 14px;
+    border: 1px solid var(--console-border);
+    background: rgba(30, 41, 59, 0.65);
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s, background 0.15s;
+}
+.console-hub-card:hover {
+    border-color: rgba(129, 140, 248, 0.45);
+    background: rgba(30, 41, 59, 0.9);
+}
+.console-hub-card__label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--console-primary);
+    margin-bottom: 8px;
+}
+.console-hub-card__title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0 0 8px;
+}
+.console-hub-card__desc {
+    font-size: 0.875rem;
+    color: var(--console-muted);
+    line-height: 1.5;
+    margin: 0;
+}

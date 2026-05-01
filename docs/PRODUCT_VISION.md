@@ -92,7 +92,7 @@ Customers embed a **lightweight loader** on their properties. The loader:
 
 **Access control:** e.g. SSO restricted to company email, or VPN + strong auth—match our threat model.
 
-**Hosting:** dedicated deploy (e.g. `admin.` subdomain), **not** mixed into the public marketing `lab_site` root without hard auth and route separation.
+**Hosting:** dedicated operator deploy (e.g. `admin.` subdomain), **not** embedded in arbitrary customer pages without hard auth and route separation.
 
 ---
 
@@ -133,4 +133,4 @@ Ship **after** multi-tenant ingest + config + internal ops are boringly reliable
 
 Living document on the **`product`** branch; revise as we ship slices and learn constraints (CSP, FS URL semantics, billing, etc.).
 
-**Shipped slice:** Postgres-backed **`POST /v1/ingest`**, **`GET /v1/summary`**, and **`POST /v1/discard`** keyed by publishable key; **`lab_site`** loads **`nexus-env.secrets.js`** then switches to **`/v1`** when **`NEXUS_PUBLISHABLE_KEY`** is set (Vercel: `npm run build` inject). For **production org-only** deploys, set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** on the collector—see **`docs/PRODUCTION_ORGS.md`**.
+**Shipped slice:** Postgres-backed **`POST /v1/ingest`**, **`GET /v1/summary`**, and **`POST /v1/discard`** keyed by publishable key; **`lab_console`** and instrumented customer pages load **`nexus-env.secrets.js`** then switch to **`/v1`** when **`NEXUS_PUBLISHABLE_KEY`** is set (Vercel: `npm run build` inject). For **production org-only** deploys, set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** on the collector—see **`docs/PRODUCTION_ORGS.md`**.

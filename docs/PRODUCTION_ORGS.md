@@ -26,11 +26,15 @@ Railway UI (root directory, Dockerfile, “error deploying from source”): `**d
 
 ---
 
-## 2. Static site (Vercel, root `lab_site`)
+## 2. Static site (Vercel): Nexus Console (`lab_console`)
 
-Full UI checklist: `**docs/VERCEL.md`**.
+Full checklist: **`docs/VERCEL.md`**.
 
-The lab loads `**js/nexus-env.secrets.js**` (optional overrides) then `**js/nexus-env.js**`. For org mode the page must set `**NEXUS_PUBLISHABLE_KEY**` (expected tradeoff for browser ingest).
+The console tree loads **`js/nexus-env.secrets.js`** then **`js/nexus-env.js`**. For org mode the browser must receive **`NEXUS_PUBLISHABLE_KEY`** (expected tradeoff for client-side ingest). Customer properties that send captures load the same pattern (snippet + env or inline config).
+
+**Visitor segmentation:** Operators open **`segmentation.html`** (from **`console/index.html`**) to set a stable visitor ID and FullStory user variables (`**nexus_cohort**` plus optional keys). Values persist in **`localStorage`** on the **console origin** and sync via **`js/nexus-segmentation.js`** + **`FS.identify`**. Mirror this on instrumented sites when you want **`nexus_user_key`** on payloads from those pages.
+
+**Product UI:** **`console/index.html`**, **`dashboard.html`**, **`segmentation.html`** live under **`lab_console/`**.
 
 ### Option A — inline before `nexus-env.secrets.js` (simplest)
 
@@ -47,7 +51,7 @@ That switches defaults to `**/v1/ingest**` and `**/v1/summary**` automatically.
 
 ### Option B — Vercel build inject (no key in git)
 
-See `**docs/VERCEL.md**` (build command, env vars, Preview vs Production, redeploy after changes). Each deploy runs `**lab_site/scripts/inject-nexus-env.js**`, which rewrites `**js/nexus-env.secrets.js**`.
+See **`docs/VERCEL.md`**. Each console deploy runs **`lab_console/scripts/inject-nexus-env.js`**, rewriting **`js/nexus-env.secrets.js`**.
 
 **Do not** commit the built file if it contains real keys after a local `npm run build`; revert or overwrite before pushing.
 

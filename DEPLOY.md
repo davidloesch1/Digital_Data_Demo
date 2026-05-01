@@ -1,6 +1,6 @@
 # Deploying the Nexus lab + shared warehouse
 
-Target: **one collector API** (Node + JSONL on disk) and **static hosting** for `lab_site`, with **≤20 concurrent users** and a **single shared warehouse**.
+Target: **one collector API** (Node + JSONL on disk), **static hosting** for the Nexus Console (**`lab_console/`**), and **customer sites** you instrument with the snippet—**≤20 concurrent users** and a **single shared warehouse** (or Postgres-only org mode).
 
 ## Environment variables (collector)
 
@@ -35,7 +35,7 @@ The script prints a **`nx_pub_…`** key once; store it in your customer/snippet
 
 Step-by-step checklist: **`docs/PRODUCTION_ORGS.md`**.
 
-Summary: Postgres + **`DATABASE_URL`** + **`PUBLISHABLE_KEY_PEPPER`** → provision org/key with **`npm run create-org`** → point **`lab_site`** at **`/v1`** by setting **`window.NEXUS_PUBLISHABLE_KEY`** before **`nexus-env.js`** (see above) → set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** once the UI no longer calls **`/collect`**.
+Summary: Postgres + **`DATABASE_URL`** + **`PUBLISHABLE_KEY_PEPPER`** → provision org/key with **`npm run create-org`** → point **`lab_console`** and each instrumented property at **`/v1`** by setting **`window.NEXUS_PUBLISHABLE_KEY`** before **`nexus-env.js`** (see above) → set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** once no client calls **`/collect`**.
 
 ### Summary vs disk (legacy file mode only)
 
@@ -59,16 +59,16 @@ Collector listens on **[http://localhost:3000](http://localhost:3000)**. **Postg
 Serve the UI locally (separate terminal), for example:
 
 ```bash
-npx --yes serve lab_site -p 4173
+cd lab_console && npm run build && npx --yes serve . -p 4173
 ```
 
-For the lab UI, copy **`lab_site/.env.example`** → **`lab_site/.env`**, set **`NEXUS_*`**, run **`cd lab_site && npm run build`**, then serve (or use Vercel—**`docs/VERCEL.md`**). For a quick local test without inject, set `http://localhost:3000` in **`nexus-env.js`** and pass a publishable key from **`create-org`**. Hard-refresh after changes.
+Copy **`lab_console/.env.example`** → **`.env`**, set **`NEXUS_*`**, run **`npm run build`**, then serve (or use Vercel—**`docs/VERCEL.md`**). For a quick local test without inject, set `http://localhost:3000` in **`nexus-env.js`** and pass a publishable key from **`create-org`**. Hard-refresh after changes.
 
 Optionally set `**CORS_ORIGINS**` in `docker-compose.yml` to your static origin, e.g. `http://localhost:4173`.
 
 ## Frontend API URL
 
-Scripts load `**lab_site/js/nexus-env.js**` first. It sets:
+Scripts load **`js/nexus-env.js`** (under **`lab_console/`** or on a customer site) after **`nexus-env.secrets.js`**. It sets:
 
 - `window.NEXUS_COLLECT_BASE` — collector origin for kinetic + label POSTs
 - `window.NEXUS_DASH_API` — dashboard warehouse fetch (same host as collector unless overridden)
@@ -92,7 +92,7 @@ Or override only the dashboard: `window.NEXUS_DASH_API`.
 
 ## Static hosting (lab only)
 
-Point **Netlify**, **Cloudflare Pages**, or **Vercel** at the `**lab_site`** directory (no build step required). Publish URL becomes your “share with colleagues” link.
+Point **Netlify**, **Cloudflare Pages**, or **Vercel** at **`lab_console`** for the operator UI (**`npm run build`** for env inject—see **`docs/VERCEL.md`**). Host instrumented apps wherever you normally deploy frontends.
 
 After deploy:
 

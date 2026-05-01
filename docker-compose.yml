@@ -1,6 +1,7 @@
 # Local: Postgres + collector in DB-only mode (no persistent disk volume for JSONL).
 # Usage: docker compose up --build
-# Lab: npx serve lab_site -p 4173 — use lab_site/.env.example + npm run build, or inline NEXUS_* before scripts.
+# Console UI (optional): cd lab_console && npm run build && npx serve . -p 4173
+# Use lab_console/.env.example + npm run build, or inline NEXUS_* before scripts.
 #
 # Create an org + key from host (DB listens on localhost:5433):
 #   cd collector && npm install && DATABASE_URL=postgresql://nexus:nexus@127.0.0.1:5433/nexus PUBLISHABLE_KEY_PEPPER=dev-pepper node scripts/create-org.js demo "Demo"

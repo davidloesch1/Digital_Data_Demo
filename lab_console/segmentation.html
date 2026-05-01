@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Nexus Console | Visitor segmentation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/site.css" />
+    <link rel="stylesheet" href="css/console-shell.css" />
+    <script src="js/fullstory-bootstrap.js"></script>
+</head>
+<body class="console-page">
+    <header class="console-topbar" role="banner">
+        <a class="console-topbar__brand" href="console/index.html">Nexus<span>Console</span></a>
+        <nav class="console-topbar__nav" aria-label="Console navigation">
+            <a href="console/index.html">Home</a>
+            <a href="dashboard.html">Dashboard</a>
+            <a href="segmentation.html" class="console-topbar__nav--active">Segmentation</a>
+        </nav>
+    </header>
+
+    <main class="site-main segmentation-main segmentation-main--console">
+        <section class="site-hero" aria-labelledby="seg-title">
+            <span class="site-hero__eyebrow">FullStory + Nexus</span>
+            <h1 id="seg-title">Visitor segmentation</h1>
+            <p class="segmentation-lead">
+                Set a <strong>stable visitor ID</strong> and optional <strong>user variables</strong> for FullStory. The same ID is stored on each behavioral capture as
+                <code>nexus_user_key</code>, so you can cluster by visitor in the Nexus dashboard (<em>Per visitor</em> cloud mode) and build segments in FullStory from the properties below.
+            </p>
+        </section>
+
+        <div class="segmentation-card">
+            <h2 class="segmentation-card__title">Configuration</h2>
+            <p class="segmentation-card__hint">
+                Values are saved in this browser only (<code>localStorage</code>). Use an opaque ID (e.g. internal customer id or study participant code)—avoid collecting unnecessary PII.
+                FullStory receives <code>FS.identify(visitorId, properties)</code> when the snippet is loaded.
+            </p>
+
+            <label class="seg-label" for="seg-user-key">Stable visitor ID</label>
+            <input type="text" id="seg-user-key" class="seg-input" autocomplete="off" placeholder="e.g. usr_8f3k2 or participant-042" />
+
+            <label class="seg-label" for="seg-cohort">Cohort label (optional)</label>
+            <input type="text" id="seg-cohort" class="seg-input" autocomplete="off" placeholder="e.g. Enterprise pilot / Cell B" />
+            <p class="segmentation-card__hint">Sent to FullStory as user property <code>nexus_cohort</code> for easy segment rules.</p>
+
+            <h3 class="segmentation-card__subtitle">Additional FullStory user properties</h3>
+            <p class="segmentation-card__hint">Optional key/value pairs (snake_case or camelCase). Empty rows are ignored.</p>
+            <div id="seg-custom-vars" class="seg-custom-vars"></div>
+            <button type="button" class="seg-btn seg-btn--ghost" id="seg-add-var">+ Add property</button>
+
+            <div class="seg-actions">
+                <button type="button" class="seg-btn seg-btn--primary" id="seg-save">Save segmentation</button>
+                <button type="button" class="seg-btn seg-btn--danger" id="seg-clear">Clear</button>
+            </div>
+
+            <div id="seg-status" class="seg-status" role="status" hidden></div>
+        </div>
+
+        <section class="segmentation-card segmentation-card--muted">
+            <h2 class="segmentation-card__title">Where this applies</h2>
+            <ul class="segmentation-list">
+                <li><strong>Nexus:</strong> Pages that load this helper attach <code>nexus_user_key</code> to kinetic payloads (same pattern on your properties after snippet install).</li>
+                <li><strong>Dashboard:</strong> Choose <strong>Cloud points → Per visitor (mean)</strong> to aggregate fingerprints by this ID.</li>
+                <li><strong>FullStory:</strong> Define segments or metrics on your user variables (e.g. <code>nexus_cohort</code>) alongside standard FS dimensions.</li>
+            </ul>
+        </section>
+    </main>
+
+    <script src="js/nexus-segmentation.js"></script>
+    <script src="js/segmentation-page.js"></script>
+</body>
+</html>
