@@ -144,7 +144,7 @@ app.get('/', (_req, res) => {
         process.env.INTERNAL_ADMIN_TOKEN &&
         String(process.env.INTERNAL_ADMIN_TOKEN).trim() !== ''
     ) {
-        body.internal_admin_portal = 'GET /internal/admin/';
+        body.internal_admin_portal = 'GET /internal/admin';
         body.internal_admin_api =
             'GET /internal/v1/orgs | POST /internal/v1/orgs | POST /internal/v1/keys/revoke';
     }
@@ -578,9 +578,15 @@ function mountInternalAdminPortal(app) {
         return;
     }
     const adminDir = path.join(__dirname, 'admin-portal');
-    app.get('/internal/admin', (_req, res) => res.redirect(302, '/internal/admin/'));
-    app.use('/internal/admin', express.static(adminDir));
-    console.log('Collector: internal admin portal at GET /internal/admin/');
+    const adminIndex = path.join(adminDir, 'index.html');
+    /** Avoid 302 /internal/admin → /internal/admin/: proxies often normalize slashes the other way → redirect loops. */
+    function sendAdminIndex(_req, res) {
+        res.sendFile(adminIndex);
+    }
+    app.get('/internal/admin', sendAdminIndex);
+    app.get('/internal/admin/', sendAdminIndex);
+    app.use('/internal/admin', express.static(adminDir, { index: false }));
+    console.log('Collector: internal admin portal at GET /internal/admin (with or without trailing slash)');
 }
 
 async function start() {

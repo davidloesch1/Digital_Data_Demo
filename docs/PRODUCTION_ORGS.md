@@ -96,7 +96,7 @@ When **`INTERNAL_ADMIN_TOKEN`** is set on the collector **and** Postgres is enab
 
 ### Browser portal (same origin as the collector)
 
-Open **`GET /internal/admin/`** on your collector public URL (e.g. `https://your-service.up.railway.app/internal/admin/`). Paste the admin token once; it is stored only in **session storage**. From there you can list orgs, provision a new org + **`nx_pub_…`** key, or revoke a key.
+Open **`GET /internal/admin`** on your collector public URL (trailing slash optional — both work). Example: `https://your-service.up.railway.app/internal/admin`. Paste the admin token once; it is stored only in **session storage**. From there you can list orgs, provision a new org + **`nx_pub_…`** key, or revoke a key.
 
 Anyone who can load that URL sees the login screen; only callers with the token can use the API. Prefer a **long random token**, Railway/VPC-only access if you ever need stricter network isolation, and **do not** embed the admin token in the lab site or git.
 
