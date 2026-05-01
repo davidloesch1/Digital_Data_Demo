@@ -160,6 +160,63 @@ async function deleteRecentEventsBySessionUrl(pool, orgIdUuid, sessionUrl, maxDe
     return rowCount || 0;
 }
 
+/**
+ * Create org if missing (by slug) and insert a new publishable key row.
+ * @returns {{ orgId: string; orgSlug: string; plainKey: string; createdOrg: boolean }}
+ */
+async function provisionOrgAndPublishableKey(pool, slug, displayName, pepper, keyLabel) {
+    const label = keyLabel && String(keyLabel).trim() !== '' ? String(keyLabel).trim() : 'provisioned';
+    const name = displayName && String(displayName).trim() !== '' ? String(displayName).trim() : slug;
+    const client = await pool.connect();
+    try {
+        await ensureSchema(client);
+        const existing = await client.query('SELECT id FROM organizations WHERE slug = $1', [slug]);
+        let orgId;
+        let createdOrg = false;
+        if (existing.rows.length) {
+            orgId = existing.rows[0].id;
+        } else {
+            createdOrg = true;
+            orgId = crypto.randomUUID();
+            await client.query(`INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)`, [
+                orgId,
+                slug,
+                name,
+            ]);
+        }
+        const raw = crypto.randomBytes(24).toString('base64url');
+        const plainKey = `nx_pub_${raw}`;
+        const keyId = crypto.randomUUID();
+        const prefix = publishableKeyPrefix(plainKey);
+        const keyHash = hashPublishableKey(pepper, plainKey);
+        await client.query(
+            `INSERT INTO publishable_keys (id, org_id, key_prefix, key_hash, label)
+             VALUES ($1, $2, $3, $4, $5)`,
+            [keyId, orgId, prefix, keyHash, label]
+        );
+        return { orgId, orgSlug: slug, plainKey, createdOrg };
+    } finally {
+        client.release();
+    }
+}
+
+/**
+ * Revoke key matching plaintext (prefix + hash). Returns number of rows updated (0 or 1).
+ */
+async function revokePublishableKey(pool, pepper, rawKey) {
+    if (!rawKey || typeof rawKey !== 'string') return 0;
+    const trimmed = rawKey.trim();
+    if (!trimmed) return 0;
+    const prefix = publishableKeyPrefix(trimmed);
+    const hash = hashPublishableKey(pepper, trimmed);
+    const { rowCount } = await pool.query(
+        `UPDATE publishable_keys SET revoked_at = now()
+         WHERE key_prefix = $1 AND key_hash = $2 AND revoked_at IS NULL`,
+        [prefix, hash]
+    );
+    return rowCount || 0;
+}
+
 module.exports = {
     KEY_PREFIX_LEN,
     hashPublishableKey,
@@ -170,4 +227,6 @@ module.exports = {
     insertBehaviorEvent,
     fetchRecentPayloads,
     deleteRecentEventsBySessionUrl,
+    provisionOrgAndPublishableKey,
+    revokePublishableKey,
 };

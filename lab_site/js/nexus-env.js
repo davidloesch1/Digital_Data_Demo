@@ -9,6 +9,18 @@
  */
 (function () {
     if (typeof window === "undefined") return;
+    /** Absolute https origin for fetch(); host-only env values become relative URLs on the page origin without a scheme. */
+    function normalizeCollectorOrigin(value) {
+        var s = String(value || "").trim();
+        if (!s) return "";
+        if (!/^https?:\/\//i.test(s)) {
+            var hostOnly = s.replace(/^\/+/, "");
+            var local =
+                /^(localhost|127\.0\.0\.1)(\:|\/|$)/i.test(hostOnly);
+            s = (local ? "http://" : "https://") + hostOnly;
+        }
+        return s.replace(/\/?$/, "");
+    }
     var fallback = "https://digitaldatademo-production.up.railway.app";
     var single = window.NEXUS_API_BASE;
     var collect =
@@ -16,8 +28,8 @@
         single ||
         fallback;
     var dash = window.NEXUS_DASH_API || single || collect;
-    window.NEXUS_COLLECT_BASE = String(collect).replace(/\/?$/, "");
-    window.NEXUS_DASH_API = String(dash).replace(/\/?$/, "");
+    window.NEXUS_COLLECT_BASE = normalizeCollectorOrigin(collect);
+    window.NEXUS_DASH_API = normalizeCollectorOrigin(dash);
 
     var pubRaw = window.NEXUS_PUBLISHABLE_KEY;
     var pubStr =

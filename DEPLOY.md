@@ -9,12 +9,13 @@ Target: **one collector API** (Node + JSONL on disk) and **static hosting** for 
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
 | `PORT`                     | HTTP port                                                                                                                               | `3000`               |
 | `WAREHOUSE_PATH`         | Absolute path to append-only JSONL                                                                                                      | `./warehouse.jsonl`  |
-| `CORS_ORIGINS`             | Comma-separated allowed browser origins. Omit or `*` for open CORS (dev only).                                                          | (open)               |
+| `CORS_ORIGINS`             | Comma-separated allowed browser origins. Include **`https://*.vercel.app`** to allow all Vercel Preview hosts alongside exact production URLs. Omit or `*` for open CORS (dev only). | (open)               |
 | `WAREHOUSE_MAX_BYTES`      | After each write, the oldest JSONL lines are removed until the file is under ~90% of this size (keeps disk usage bounded).                | `524288000` (500 MiB) |
 | `SUMMARY_MAX_LINES`      | `GET /summary` returns only the **most recent** *N* non-empty lines (parsed JSON), so the dashboard payload stays small.                    | `1000`               |
 | `SUMMARY_QUERY_LIMIT_CAP` | Maximum allowed `?limit=` on `/summary` (caps ad-hoc browser queries).                                                                  | `5000`               |
 | `DATABASE_URL`            | Postgres connection string. When set with `PUBLISHABLE_KEY_PEPPER`, **`/v1/ingest`** and **`/v1/summary`** are enabled (multi-tenant). Legacy **`/collect`** / **`/summary`** still work **in parallel** until you opt into org-only mode (below). | (unset)              |
 | `PUBLISHABLE_KEY_PEPPER`  | Server secret used to hash browser publishable keys (`nx_pub_…`). **Must** match the value used when running `npm run create-org` in `collector/`. | (unset)              |
+| `INTERNAL_ADMIN_TOKEN` | Long random secret. When set **with** Postgres configured, enables **`POST /internal/v1/orgs`** and **`POST /internal/v1/keys/revoke`** authenticated via **`Authorization: Bearer …`** or **`X-Nexus-Admin-Token`**. Omit in production if you only use CLI scripts. | (unset)              |
 | `DISABLE_LEGACY_FILE_WAREHOUSE` | When **`true`** (and Postgres is configured), **`POST /collect`**, **`GET /summary`**, and **`POST /discard`** return **410**; only **`/v1/*`** + publishable key accepted—recommended for **production org-only** deploys. | (unset / false)      |
 
 Endpoints: `POST /collect`, `GET /summary` (optional `?limit=`), `POST /discard`, `GET /health`. With Postgres: `POST /v1/ingest`, `GET /v1/summary`, `POST /v1/discard` (publishable key on all three).

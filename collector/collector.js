@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
+const crypto = require('crypto');
 const fs = require('fs');
 const fsp = fs.promises;
 const path = require('path');
@@ -76,18 +77,42 @@ function normalizeOrigin(value) {
     return value.trim().replace(/\/+$/, '');
 }
 
+/** Comma-separated CORS_ORIGINS: exact https origins, plus optional `https://*.vercel.app` (or `*.vercel.app`) for any preview host under .vercel.app. */
+function parseCorsOriginsEnv(envStr) {
+    const tokens = envStr.split(',').map((s) => s.trim()).filter(Boolean);
+    const exact = [];
+    let allowVercelPreviewHosts = false;
+    for (const t of tokens) {
+        if (t === 'https://*.vercel.app' || t === '*.vercel.app') {
+            allowVercelPreviewHosts = true;
+        } else {
+            const n = normalizeOrigin(t);
+            if (n) exact.push(n);
+        }
+    }
+    return { exact, allowVercelPreviewHosts };
+}
+
+function isHttpsVercelAppOrigin(origin) {
+    try {
+        const u = new URL(origin);
+        return u.protocol === 'https:' && u.hostname.endsWith('.vercel.app');
+    } catch {
+        return false;
+    }
+}
+
 const corsOriginsEnv = process.env.CORS_ORIGINS;
 let corsMiddleware = cors();
 if (corsOriginsEnv && corsOriginsEnv.trim() !== '' && corsOriginsEnv.trim() !== '*') {
-    const allowed = corsOriginsEnv
-        .split(',')
-        .map((s) => normalizeOrigin(s))
-        .filter(Boolean);
-    if (allowed.length > 0) {
+    const { exact, allowVercelPreviewHosts } = parseCorsOriginsEnv(corsOriginsEnv);
+    if (exact.length > 0 || allowVercelPreviewHosts) {
         corsMiddleware = cors({
             origin(origin, cb) {
                 if (!origin) return cb(null, true);
-                if (allowed.includes(normalizeOrigin(origin))) return cb(null, true);
+                const norm = normalizeOrigin(origin);
+                if (exact.includes(norm)) return cb(null, true);
+                if (allowVercelPreviewHosts && isHttpsVercelAppOrigin(origin)) return cb(null, true);
                 return cb(null, false);
             },
         });
@@ -445,6 +470,87 @@ app.post('/v1/discard', async (req, res) => {
     res.status(200).json({ ok: true, discarded: removed });
 });
 
+/** POST /internal/v1/orgs, POST /internal/v1/keys/revoke — bearer INTERNAL_ADMIN_TOKEN */
+function mountInternalAdminRoutes(app) {
+    const expected = process.env.INTERNAL_ADMIN_TOKEN;
+    if (!tenantContext || !expected || String(expected).trim() === '') {
+        return;
+    }
+
+    function adminTokenOk(req) {
+        let presented = null;
+        const auth = req.headers.authorization;
+        if (auth && typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
+            presented = auth.slice(7).trim();
+        }
+        if (!presented && req.headers['x-nexus-admin-token']) {
+            presented = String(req.headers['x-nexus-admin-token']).trim();
+        }
+        if (!presented) return false;
+        const exp = String(expected).trim();
+        try {
+            const a = Buffer.from(presented, 'utf8');
+            const b = Buffer.from(exp, 'utf8');
+            if (a.length !== b.length) return false;
+            return crypto.timingSafeEqual(a, b);
+        } catch {
+            return false;
+        }
+    }
+
+    const router = express.Router();
+    router.use((req, res, next) => {
+        if (!adminTokenOk(req)) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        next();
+    });
+
+    router.post('/orgs', async (req, res) => {
+        const slug = req.body && req.body.slug;
+        const name = (req.body && req.body.name) || slug;
+        if (!slug || typeof slug !== 'string' || String(slug).trim() === '') {
+            return res.status(400).json({ error: 'slug required (JSON body)' });
+        }
+        try {
+            const out = await tenantDbApi.provisionOrgAndPublishableKey(
+                tenantContext.pool,
+                String(slug).trim(),
+                typeof name === 'string' ? name.trim() : String(slug).trim(),
+                tenantContext.pepper,
+                'internal-admin'
+            );
+            res.status(201).json({ org_slug: out.orgSlug, publishable_key: out.plainKey });
+        } catch (e) {
+            console.error('internal POST /orgs:', e.message || e);
+            res.status(500).json({ error: 'Provision failed' });
+        }
+    });
+
+    router.post('/keys/revoke', async (req, res) => {
+        const rawKey = req.body && req.body.publishable_key;
+        if (!rawKey || typeof rawKey !== 'string' || String(rawKey).trim() === '') {
+            return res.status(400).json({ error: 'publishable_key required (JSON body)' });
+        }
+        try {
+            const n = await tenantDbApi.revokePublishableKey(
+                tenantContext.pool,
+                tenantContext.pepper,
+                rawKey
+            );
+            res.status(200).json({ ok: true, revoked: n });
+        } catch (e) {
+            console.error('internal POST /keys/revoke:', e.message || e);
+            res.status(500).json({ error: 'Revoke failed' });
+        }
+    });
+
+    app.use('/internal/v1', router);
+    console.log(
+        'Collector: internal admin API at POST /internal/v1/orgs, POST /internal/v1/keys/revoke (INTERNAL_ADMIN_TOKEN)'
+    );
+}
+
 async function start() {
     if (process.env.DATABASE_URL) {
         try {
@@ -461,6 +567,7 @@ async function start() {
             process.exit(1);
         }
     }
+    mountInternalAdminRoutes(app);
     app.listen(PORT, '0.0.0.0', () =>
         console.log(
             `🚀 Collector live on :${PORT} | warehouse: ${WAREHOUSE_PATH} | max ${WAREHOUSE_MAX_BYTES}B | summary last ${SUMMARY_MAX_LINES} lines` +

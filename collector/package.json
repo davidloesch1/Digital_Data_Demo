@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node collector.js",
     "create-org": "node scripts/create-org.js",
+    "revoke-key": "node scripts/revoke-key.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
