@@ -9,7 +9,8 @@ COPY tenant-db.js collector.js ./
 
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV WAREHOUSE_PATH=/data/warehouse.jsonl
+# Overridden per deploy; /tmp is fine when only /v1 + Postgres is used (no disk volume).
+ENV WAREHOUSE_PATH=/tmp/warehouse.jsonl
 
 EXPOSE 3000
 

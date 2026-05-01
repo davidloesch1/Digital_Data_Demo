@@ -1,9 +1,8 @@
-# Local/prototype: collector API + optional Postgres multi-tenant ingest.
+# Local: Postgres + collector in DB-only mode (no persistent disk volume for JSONL).
 # Usage: docker compose up --build
-# Lab UI: serve lab_site (e.g. npx serve lab_site -p 4173) and set lab_site/js/nexus-env.js to http://localhost:3000
+# Lab: npx serve lab_site -p 4173 — use lab_site/.env.example + npm run build, or inline NEXUS_* before scripts.
 #
-# Multi-tenant: with DATABASE_URL set, use POST /v1/ingest and GET /v1/summary with publishable key.
-# Create an org + key from host:
+# Create an org + key from host (DB listens on localhost:5433):
 #   cd collector && npm install && DATABASE_URL=postgresql://nexus:nexus@127.0.0.1:5433/nexus PUBLISHABLE_KEY_PEPPER=dev-pepper node scripts/create-org.js demo "Demo"
 
 services:
@@ -32,14 +31,12 @@ services:
         condition: service_healthy
     environment:
       PORT: "3000"
-      WAREHOUSE_PATH: /data/warehouse.jsonl
+      WAREHOUSE_PATH: /tmp/warehouse.jsonl
       DATABASE_URL: postgresql://nexus:nexus@postgres:5432/nexus
       PUBLISHABLE_KEY_PEPPER: dev-pepper-change-in-production
+      DISABLE_LEGACY_FILE_WAREHOUSE: "true"
       # Comma-separated origins for browser clients (static site URLs). Omit or * for permissive dev CORS.
       # CORS_ORIGINS: "http://localhost:4173,https://your-app.netlify.app"
-    volumes:
-      - warehouse-data:/data
 
 volumes:
-  warehouse-data:
   nexus-pg:

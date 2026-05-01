@@ -36,12 +36,16 @@ Step-by-step checklist: **`docs/PRODUCTION_ORGS.md`**.
 
 Summary: Postgres + **`DATABASE_URL`** + **`PUBLISHABLE_KEY_PEPPER`** → provision org/key with **`npm run create-org`** → point **`lab_site`** at **`/v1`** by setting **`window.NEXUS_PUBLISHABLE_KEY`** before **`nexus-env.js`** (see above) → set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** once the UI no longer calls **`/collect`**.
 
-### Summary vs disk
+### Summary vs disk (legacy file mode only)
 
-- **Disk:** every event is still appended; when the file exceeds `WAREHOUSE_MAX_BYTES`, the **head** of the file is dropped in full lines until size is back under the cap. Oldest data falls off first.
-- **Dashboard:** by default the UI only **fetches** the last `SUMMARY_MAX_LINES` rows. That matches ~1000 points in **kinetic** (per-row) mode. In **per session** or **per visitor** mode, one session can own many kinetic rows—if the list looks sparse, raise `SUMMARY_MAX_LINES` (e.g. `15000`) so the last N **lines** still cover enough distinct sessions.
+When **`DISABLE_LEGACY_FILE_WAREHOUSE`** is **not** set and clients use **`/collect`** / **`/summary`**:
 
-## Local Docker (API + volume)
+- **Disk:** every event is appended; when the file exceeds `WAREHOUSE_MAX_BYTES`, the **head** of the file is dropped in full lines until size is back under the cap.
+- **Dashboard:** `GET /summary` returns the last `SUMMARY_MAX_LINES` rows (raise for session-heavy charts if needed).
+
+**Org-only / Postgres:** use **`/v1/*`**; no JSONL volume is required (see **`docker-compose.yml`** and **`docs/PRODUCTION_ORGS.md`**).
+
+## Local Docker (Postgres + collector, DB-first)
 
 From the repo root:
 
@@ -49,7 +53,7 @@ From the repo root:
 docker compose up --build
 ```
 
-Collector listens on **[http://localhost:3000](http://localhost:3000)**. Data persists in the `warehouse-data` Docker volume.
+Collector listens on **[http://localhost:3000](http://localhost:3000)**. **Postgres** data persists in the **`nexus-pg`** volume; **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** in compose so only **`/v1/*`** is used (no `warehouse-data` volume).
 
 Serve the UI locally (separate terminal), for example:
 
@@ -57,7 +61,7 @@ Serve the UI locally (separate terminal), for example:
 npx --yes serve lab_site -p 4173
 ```
 
-Edit `**lab_site/js/nexus-env.js**` and set the collector URL to match where the API runs (for Docker Compose, `http://localhost:3000` is usually correct). Redeploy or hard-refresh the browser after changing it.
+For the lab UI, copy **`lab_site/.env.example`** → **`lab_site/.env`**, set **`NEXUS_*`**, run **`cd lab_site && npm run build`**, then serve (or use Vercel—**`docs/VERCEL.md`**). For a quick local test without inject, set `http://localhost:3000` in **`nexus-env.js`** and pass a publishable key from **`create-org`**. Hard-refresh after changes.
 
 Optionally set `**CORS_ORIGINS**` in `docker-compose.yml` to your static origin, e.g. `http://localhost:4173`.
 
