@@ -47,6 +47,7 @@ function rejectLegacyFileRoutes(res) {
         error: 'Legacy file warehouse is disabled for this deployment',
         ingest: 'POST /v1/ingest',
         summary: 'GET /v1/summary',
+        discard: 'POST /v1/discard',
         hint: 'Use a publishable key (Authorization: Bearer nx_pub_…). Re-enable file routes only for migration by unsetting DISABLE_LEGACY_FILE_WAREHOUSE.',
     });
 }
@@ -377,6 +378,55 @@ app.get('/v1/summary', async (req, res) => {
     }
 });
 
+/** Org-scoped discard (same body as POST /discard: { session_url }). Requires publishable key. */
+app.post('/v1/discard', async (req, res) => {
+    if (!tenantContext) {
+        return res.status(503).json({
+            error: 'Multi-tenant discard not configured',
+            hint: 'Set DATABASE_URL and PUBLISHABLE_KEY_PEPPER on the collector.',
+        });
+    }
+    const rawKey = extractPublishableKey(req);
+    if (!rawKey) {
+        return res.status(401).json({
+            error: 'Missing publishable key',
+            hint: 'Use Authorization: Bearer <nx_pub_...> or X-Nexus-Publishable-Key',
+        });
+    }
+    let resolved;
+    try {
+        resolved = await tenantDbApi.resolvePublishableKey(
+            tenantContext.pool,
+            tenantContext.pepper,
+            rawKey
+        );
+    } catch (e) {
+        console.error('resolvePublishableKey:', e);
+        return res.status(500).json({ error: 'Auth lookup failed' });
+    }
+    if (!resolved) {
+        return res.status(401).json({ error: 'Invalid or revoked publishable key' });
+    }
+    const sessionUrl = req.body && req.body.session_url;
+    if (!sessionUrl || typeof sessionUrl !== 'string' || sessionUrl.trim() === '') {
+        return res.status(400).json({ error: 'session_url required in JSON body' });
+    }
+    let removed;
+    try {
+        removed = await tenantDbApi.deleteRecentEventsBySessionUrl(
+            tenantContext.pool,
+            resolved.orgId,
+            sessionUrl.trim(),
+            20
+        );
+    } catch (e) {
+        console.error('deleteRecentEventsBySessionUrl:', e);
+        return res.status(500).json({ error: 'Discard failed' });
+    }
+    console.log(`🗑️  v1/discard | org=${resolved.orgSlug} | removed ${removed} row(s)`);
+    res.status(200).json({ ok: true, discarded: removed });
+});
+
 async function start() {
     if (process.env.DATABASE_URL) {
         try {
@@ -384,7 +434,7 @@ async function start() {
                 process.env.DATABASE_URL,
                 process.env.PUBLISHABLE_KEY_PEPPER || ''
             );
-            console.log('Collector: multi-tenant Postgres enabled (/v1/ingest, /v1/summary)');
+            console.log('Collector: multi-tenant Postgres enabled (/v1/ingest, /v1/summary, /v1/discard)');
             if (envTruthy('DISABLE_LEGACY_FILE_WAREHOUSE')) {
                 console.log('Collector: legacy file routes disabled (DISABLE_LEGACY_FILE_WAREHOUSE)');
             }

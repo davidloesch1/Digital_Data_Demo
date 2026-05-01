@@ -17,7 +17,7 @@ Target: **one collector API** (Node + JSONL on disk) and **static hosting** for 
 | `PUBLISHABLE_KEY_PEPPER`  | Server secret used to hash browser publishable keys (`nx_pub_…`). **Must** match the value used when running `npm run create-org` in `collector/`. | (unset)              |
 | `DISABLE_LEGACY_FILE_WAREHOUSE` | When **`true`** (and Postgres is configured), **`POST /collect`**, **`GET /summary`**, and **`POST /discard`** return **410**; only **`/v1/*`** + publishable key accepted—recommended for **production org-only** deploys. | (unset / false)      |
 
-Endpoints: `POST /collect`, `GET /summary` (optional `?limit=`), `POST /discard`, `GET /health`.
+Endpoints: `POST /collect`, `GET /summary` (optional `?limit=`), `POST /discard`, `GET /health`. With Postgres: `POST /v1/ingest`, `GET /v1/summary`, `POST /v1/discard` (publishable key on all three).
 
 **Multi-tenant (Postgres):** `POST /v1/ingest`, `GET /v1/summary?limit=` — authenticate with **`Authorization: Bearer <nx_pub_…>`** or header **`X-Nexus-Publishable-Key`**. Returns **503** if `DATABASE_URL` is not set. Provision orgs and keys from your machine:
 
@@ -69,10 +69,11 @@ Scripts load `**lab_site/js/nexus-env.js**` first. It sets:
 - `window.NEXUS_DASH_API` — dashboard warehouse fetch (same host as collector unless overridden)
 - `window.NEXUS_PUBLISHABLE_KEY` *(optional)* — when set before `nexus-env.js`, defaults switch to **`/v1/ingest`** and **`/v1/summary`** with `Authorization: Bearer …` (multi-tenant Postgres). Override paths with `NEXUS_INGEST_PATH` / `NEXUS_SUMMARY_PATH` if needed.
 
-Example before `nexus-env.js` on a staging page:
+Pages load **`js/nexus-env.secrets.js`** then **`js/nexus-env.js`**. Override inline **before** the secrets script, or use Vercel env + `npm run build` (see **`docs/PRODUCTION_ORGS.md`**).
 
 ```html
 <script>window.NEXUS_PUBLISHABLE_KEY = "nx_pub_…";</script>
+<script src="js/nexus-env.secrets.js"></script>
 <script src="js/nexus-env.js"></script>
 ```
 

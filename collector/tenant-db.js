@@ -139,6 +139,27 @@ async function fetchRecentPayloads(pool, orgIdUuid, limit) {
     return rows.map((r) => r.payload).reverse();
 }
 
+/**
+ * Remove up to `maxDelete` most recent events for this org matching payload.session_url (legacy /discard parity).
+ * @returns {Promise<number>} rows deleted
+ */
+async function deleteRecentEventsBySessionUrl(pool, orgIdUuid, sessionUrl, maxDelete) {
+    const lim = Math.max(1, Math.min(100, Number(maxDelete) || 20));
+    const { rowCount } = await pool.query(
+        `DELETE FROM behavior_events
+         WHERE id IN (
+           SELECT id FROM (
+             SELECT id FROM behavior_events
+             WHERE org_id = $1 AND payload->>'session_url' = $2
+             ORDER BY created_at DESC
+             LIMIT $3
+           ) AS del
+         )`,
+        [orgIdUuid, sessionUrl, lim]
+    );
+    return rowCount || 0;
+}
+
 module.exports = {
     KEY_PREFIX_LEN,
     hashPublishableKey,
@@ -148,4 +169,5 @@ module.exports = {
     resolvePublishableKey,
     insertBehaviorEvent,
     fetchRecentPayloads,
+    deleteRecentEventsBySessionUrl,
 };

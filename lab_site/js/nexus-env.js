@@ -3,9 +3,9 @@
  * Override per-page by defining window.NEXUS_COLLECT_BASE / window.NEXUS_DASH_API before this script.
  * Single-knob option: window.NEXUS_API_BASE applies to both collect and dashboard when others unset.
  *
- * Multi-tenant: set window.NEXUS_PUBLISHABLE_KEY (nx_pub_…) before this script to switch defaults to
- * POST /v1/ingest and GET /v1/summary with Authorization: Bearer. Override paths with NEXUS_INGEST_PATH /
- * NEXUS_SUMMARY_PATH if needed.
+ * Multi-tenant: set window.NEXUS_PUBLISHABLE_KEY (nx_pub_…) before this script (e.g. in js/nexus-env.secrets.js
+ * or an inline script) to switch defaults to POST /v1/ingest and GET /v1/summary with Authorization: Bearer.
+ * Override paths with NEXUS_INGEST_PATH / NEXUS_SUMMARY_PATH if needed.
  */
 (function () {
     if (typeof window === "undefined") return;

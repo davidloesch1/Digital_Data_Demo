@@ -133,4 +133,4 @@ Ship **after** multi-tenant ingest + config + internal ops are boringly reliable
 
 Living document on the **`product`** branch; revise as we ship slices and learn constraints (CSP, FS URL semantics, billing, etc.).
 
-**Shipped slice:** Postgres-backed **`POST /v1/ingest`** and **`GET /v1/summary`** keyed by publishable key; **`lab_site`** switches to **`/v1`** when **`NEXUS_PUBLISHABLE_KEY`** is set (`DEPLOY.md`). For **production org-only** deploys, set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** on the collector so legacy **`/collect`** / **`/summary`** are turned off—see **`docs/PRODUCTION_ORGS.md`**.
+**Shipped slice:** Postgres-backed **`POST /v1/ingest`**, **`GET /v1/summary`**, and **`POST /v1/discard`** keyed by publishable key; **`lab_site`** loads **`nexus-env.secrets.js`** then switches to **`/v1`** when **`NEXUS_PUBLISHABLE_KEY`** is set (Vercel: `npm run build` inject). For **production org-only** deploys, set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** on the collector—see **`docs/PRODUCTION_ORGS.md`**.

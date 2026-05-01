@@ -28,21 +28,38 @@ Use this when you want **real product behavior**: each customer’s events live 
 
 ## 2. Static site (e.g. Vercel, root `lab_site`)
 
-The lab reads **`nexus-env.js`** first. For org mode you must expose a **publishable key** to the page (expected tradeoff for browser ingest).
+The lab loads **`js/nexus-env.secrets.js`** (optional overrides) then **`js/nexus-env.js`**. For org mode the page must set **`NEXUS_PUBLISHABLE_KEY`** (expected tradeoff for browser ingest).
 
-**Option A — inline before `nexus-env.js` (simplest):**
+### Option A — inline before `nexus-env.secrets.js` (simplest)
 
 ```html
 <script>
   window.NEXUS_PUBLISHABLE_KEY = "nx_pub_…";
   window.NEXUS_API_BASE = "https://your-collector.up.railway.app";
 </script>
+<script src="js/nexus-env.secrets.js"></script>
 <script src="js/nexus-env.js"></script>
 ```
 
 That switches defaults to **`/v1/ingest`** and **`/v1/summary`** automatically.
 
-**Option B — build-time injection:** generate a tiny inline script from **Vercel env** (`NEXUS_PUBLISHABLE_KEY`) so the key is not committed to git.
+### Option B — Vercel build inject (no key in git)
+
+1. In the Vercel project (**Root directory** = `lab_site`), set **Build command** to: `npm run build`  
+   (Install command can stay default; `lab_site/package.json` only runs the inject script.)
+
+2. Add **Environment variables** (Production / Preview as needed):
+
+   | Variable | Example |
+   |----------|---------|
+   | `NEXUS_PUBLISHABLE_KEY` | `nx_pub_…` from `create-org` |
+   | `NEXUS_API_BASE` | `https://your-collector.up.railway.app` |
+
+   Optional: `NEXUS_COLLECT_BASE`, `NEXUS_DASH_API` if you split dashboard vs ingest host.
+
+3. Each deploy runs **`lab_site/scripts/inject-nexus-env.js`**, which **rewrites** `js/nexus-env.secrets.js` from those env vars. The committed repo file is a **no-op placeholder** until build runs.
+
+**Do not** commit the built file if it contains real keys after a local `npm run build`; revert or overwrite before pushing.
 
 ---
 
