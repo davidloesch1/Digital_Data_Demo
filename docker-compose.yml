@@ -34,6 +34,8 @@ services:
       WAREHOUSE_PATH: /tmp/warehouse.jsonl
       DATABASE_URL: postgresql://nexus:nexus@postgres:5432/nexus
       PUBLISHABLE_KEY_PEPPER: dev-pepper-change-in-production
+      # Required for /internal/admin/ portal + /internal/v1/* HTTP API (use a long random value in production).
+      INTERNAL_ADMIN_TOKEN: dev-admin-token-change-me
       DISABLE_LEGACY_FILE_WAREHOUSE: "true"
       # Comma-separated origins for browser clients (static site URLs). Omit or * for permissive dev CORS.
       # CORS_ORIGINS: "http://localhost:4173,https://your-app.netlify.app"

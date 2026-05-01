@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Nexus — Internal admin</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --muted: #8b9cb3;
+      --accent: #5b9fd4;
+      --danger: #e07070;
+      --ok: #6bcb8f;
+      --radius: 10px;
+      --font: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 820px;
+      margin: 0 auto;
+      padding: 2rem 1.25rem 4rem;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      margin: 0 0 0.35rem;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.35rem;
+      margin-bottom: 1.25rem;
+    }
+    .panel h2 {
+      margin: 0 0 1rem;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    label {
+      display: block;
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    input[type="text"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      padding: 0.55rem 0.65rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 0.95rem;
+      margin-bottom: 0.85rem;
+    }
+    textarea { min-height: 72px; resize: vertical; font-family: ui-monospace, monospace; font-size: 0.85rem; }
+    .row {
+      display: grid;
+      gap: 0.85rem;
+    }
+    @media (min-width: 540px) {
+      .row.two { grid-template-columns: 1fr 1fr; }
+    }
+    button {
+      appearance: none;
+      border: none;
+      border-radius: 6px;
+      padding: 0.55rem 1rem;
+      font-weight: 600;
+      font-size: 0.9rem;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    button.primary {
+      background: var(--accent);
+      color: #0a0f14;
+    }
+    button.primary:hover { filter: brightness(1.08); }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    button.danger {
+      background: rgba(224, 112, 112, 0.15);
+      color: var(--danger);
+      border: 1px solid rgba(224, 112, 112, 0.35);
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.25rem; }
+    .flash {
+      padding: 0.65rem 0.85rem;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      margin-top: 0.75rem;
+      display: none;
+    }
+    .flash.show { display: block; }
+    .flash.err {
+      background: rgba(224, 112, 112, 0.12);
+      border: 1px solid rgba(224, 112, 112, 0.35);
+      color: #f0b4b4;
+    }
+    .flash.ok {
+      background: rgba(107, 203, 143, 0.12);
+      border: 1px solid rgba(107, 203, 143, 0.35);
+      color: #a8e6c4;
+    }
+    .key-out {
+      word-break: break-all;
+      font-family: ui-monospace, monospace;
+      font-size: 0.82rem;
+      background: var(--bg);
+      padding: 0.75rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      margin-top: 0.5rem;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.35rem;
+      border-bottom: 1px solid var(--border);
+    }
+    th { color: var(--muted); font-weight: 500; }
+    .hidden { display: none !important; }
+    code { font-size: 0.85em; background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Nexus collector · Internal admin</h1>
+    <p class="sub">Provision orgs and keys against this collector’s database. Requires <code>INTERNAL_ADMIN_TOKEN</code> on the server. Token stays in this browser only (session storage).</p>
+
+    <section id="step-login" class="panel">
+      <h2>Sign in</h2>
+      <label for="token">Admin token</label>
+      <input id="token" type="password" autocomplete="off" placeholder="Paste INTERNAL_ADMIN_TOKEN value" />
+      <div class="actions">
+        <button type="button" class="primary" id="btn-connect">Unlock</button>
+      </div>
+      <div id="login-flash" class="flash err" role="alert"></div>
+    </section>
+
+    <div id="step-app" class="hidden">
+      <section class="panel">
+        <h2>Organizations</h2>
+        <div class="actions" style="margin-bottom: 0.75rem;">
+          <button type="button" class="ghost" id="btn-refresh-orgs">Refresh list</button>
+          <button type="button" class="ghost" id="btn-logout">Clear token</button>
+        </div>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr><th>Slug</th><th>Name</th><th>Created</th></tr>
+            </thead>
+            <tbody id="org-rows"></tbody>
+          </table>
+        </div>
+        <p id="orgs-empty" class="sub" style="margin: 0.5rem 0 0;">No organizations yet.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Provision org + key</h2>
+        <div class="row two">
+          <div>
+            <label for="slug">Slug</label>
+            <input id="slug" type="text" placeholder="e.g. acme-corp" autocomplete="off" />
+          </div>
+          <div>
+            <label for="name">Display name</label>
+            <input id="name" type="text" placeholder="e.g. Acme Corp" autocomplete="off" />
+          </div>
+        </div>
+        <div class="actions">
+          <button type="button" class="primary" id="btn-provision">Create org &amp; key</button>
+        </div>
+        <div id="provision-flash" class="flash err"></div>
+        <div id="provision-result" class="hidden">
+          <p style="margin: 0.75rem 0 0; color: var(--muted); font-size: 0.85rem;">Publishable key (copy once — not stored server-side):</p>
+          <div class="key-out" id="new-key"></div>
+          <div class="actions">
+            <button type="button" class="ghost" id="btn-copy-key">Copy key</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Revoke publishable key</h2>
+        <label for="revoke-key">Full plaintext key (<code>nx_pub_…</code>)</label>
+        <textarea id="revoke-key" placeholder="nx_pub_…"></textarea>
+        <div class="actions">
+          <button type="button" class="danger" id="btn-revoke">Revoke key</button>
+        </div>
+        <div id="revoke-flash" class="flash err"></div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+(function () {
+  var STORAGE = 'nexus_internal_admin_token';
+
+  function getToken() {
+    try {
+      return sessionStorage.getItem(STORAGE) || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function setToken(t) {
+    try {
+      if (t) sessionStorage.setItem(STORAGE, t);
+      else sessionStorage.removeItem(STORAGE);
+    } catch (e) {}
+  }
+
+  function showFlash(el, ok, msg) {
+    el.textContent = msg || '';
+    el.className = 'flash show ' + (ok ? 'ok' : 'err');
+  }
+
+  function hideFlash(el) {
+    el.className = 'flash';
+    el.textContent = '';
+  }
+
+  async function api(method, path, body) {
+    var tok = getToken();
+    var opts = {
+      method: method,
+      headers: {
+        Authorization: 'Bearer ' + tok,
+        Accept: 'application/json',
+      },
+    };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    var r = await fetch('/internal/v1' + path, opts);
+    var text = await r.text();
+    var data;
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch (e) {
+      data = { error: text || r.statusText };
+    }
+    if (!r.ok) {
+      var err = new Error(data.error || r.status + ' ' + r.statusText);
+      err.status = r.status;
+      err.body = data;
+      throw err;
+    }
+    return data;
+  }
+
+  async function refreshOrgs() {
+    var data = await api('GET', '/orgs');
+    var tbody = document.getElementById('org-rows');
+    var empty = document.getElementById('orgs-empty');
+    tbody.innerHTML = '';
+    var orgs = data.orgs || [];
+    if (!orgs.length) {
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+    orgs.forEach(function (o) {
+      var tr = document.createElement('tr');
+      var created = o.created_at
+        ? new Date(o.created_at).toLocaleString()
+        : '—';
+      tr.innerHTML =
+        '<td>' +
+        escapeHtml(o.slug) +
+        '</td><td>' +
+        escapeHtml(o.name) +
+        '</td><td>' +
+        escapeHtml(created) +
+        '</td>';
+      tbody.appendChild(tr);
+    });
+  }
+
+  function escapeHtml(s) {
+    if (s == null) return '';
+    var d = document.createElement('div');
+    d.textContent = String(s);
+    return d.innerHTML;
+  }
+
+  function showApp(show) {
+    document.getElementById('step-login').classList.toggle('hidden', show);
+    document.getElementById('step-app').classList.toggle('hidden', !show);
+  }
+
+  document.getElementById('btn-connect').addEventListener('click', async function () {
+    var raw = document.getElementById('token').value.trim();
+    var flash = document.getElementById('login-flash');
+    hideFlash(flash);
+    if (!raw) {
+      showFlash(flash, false, 'Enter the admin token.');
+      return;
+    }
+    setToken(raw);
+    try {
+      await api('GET', '/orgs');
+      document.getElementById('token').value = '';
+      showApp(true);
+      await refreshOrgs();
+    } catch (e) {
+      setToken('');
+      showFlash(flash, false, e.message || 'Unauthorized — check INTERNAL_ADMIN_TOKEN');
+    }
+  });
+
+  document.getElementById('btn-logout').addEventListener('click', function () {
+    setToken('');
+    showApp(false);
+    hideFlash(document.getElementById('login-flash'));
+  });
+
+  document.getElementById('btn-refresh-orgs').addEventListener('click', function () {
+    refreshOrgs().catch(function (e) {
+      alert(e.message);
+    });
+  });
+
+  document.getElementById('btn-provision').addEventListener('click', async function () {
+    var slug = document.getElementById('slug').value.trim();
+    var name = document.getElementById('name').value.trim();
+    var flash = document.getElementById('provision-flash');
+    var result = document.getElementById('provision-result');
+    hideFlash(flash);
+    result.classList.add('hidden');
+    if (!slug) {
+      showFlash(flash, false, 'Slug is required.');
+      return;
+    }
+    try {
+      var out = await api('POST', '/orgs', {
+        slug: slug,
+        name: name || slug,
+      });
+      document.getElementById('new-key').textContent = out.publishable_key || '';
+      result.classList.remove('hidden');
+      showFlash(flash, true, 'Org ready. Copy the key below into Vercel / clients.');
+      document.getElementById('slug').value = '';
+      document.getElementById('name').value = '';
+      await refreshOrgs();
+    } catch (e) {
+      showFlash(flash, false, e.message || 'Provision failed');
+    }
+  });
+
+  document.getElementById('btn-copy-key').addEventListener('click', async function () {
+    var t = document.getElementById('new-key').textContent;
+    if (!t) return;
+    try {
+      await navigator.clipboard.writeText(t);
+      showFlash(document.getElementById('provision-flash'), true, 'Copied to clipboard.');
+    } catch (e) {
+      alert('Copy failed — select the key manually.');
+    }
+  });
+
+  document.getElementById('btn-revoke').addEventListener('click', async function () {
+    var raw = document.getElementById('revoke-key').value.trim();
+    var flash = document.getElementById('revoke-flash');
+    hideFlash(flash);
+    if (!raw) {
+      showFlash(flash, false, 'Paste the full nx_pub_… key.');
+      return;
+    }
+    if (!confirm('Revoke this key? Clients using it will get 401.')) return;
+    try {
+      var out = await api('POST', '/keys/revoke', { publishable_key: raw });
+      document.getElementById('revoke-key').value = '';
+      showFlash(
+        flash,
+        true,
+        out.revoked ? 'Key revoked.' : 'No matching active key (already revoked or unknown).'
+      );
+    } catch (e) {
+      showFlash(flash, false, e.message || 'Revoke failed');
+    }
+  });
+
+  if (getToken()) {
+    api('GET', '/orgs')
+      .then(function () {
+        showApp(true);
+        return refreshOrgs();
+      })
+      .catch(function () {
+        setToken('');
+        showApp(false);
+      });
+  }
+})();
+  </script>
+</body>
+</html>

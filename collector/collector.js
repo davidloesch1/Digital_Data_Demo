@@ -125,7 +125,7 @@ app.use(bodyParser.json({ limit: '2mb' }));
 
 /** Root URL in browser — there is no HTML app here, only API routes. */
 app.get('/', (_req, res) => {
-    res.status(200).json({
+    const body = {
         ok: true,
         service: 'nexus-collector',
         message: 'Use GET /health. Ingest: POST /v1/ingest (or legacy POST /collect if enabled).',
@@ -138,7 +138,17 @@ app.get('/', (_req, res) => {
             summary_legacy: 'GET /summary',
             discard_legacy: 'POST /discard',
         },
-    });
+    };
+    if (
+        tenantContext &&
+        process.env.INTERNAL_ADMIN_TOKEN &&
+        String(process.env.INTERNAL_ADMIN_TOKEN).trim() !== ''
+    ) {
+        body.internal_admin_portal = 'GET /internal/admin/';
+        body.internal_admin_api =
+            'GET /internal/v1/orgs | POST /internal/v1/orgs | POST /internal/v1/keys/revoke';
+    }
+    res.status(200).json(body);
 });
 
 function warehouseExists() {
@@ -506,6 +516,16 @@ function mountInternalAdminRoutes(app) {
         next();
     });
 
+    router.get('/orgs', async (_req, res) => {
+        try {
+            const orgs = await tenantDbApi.listOrganizations(tenantContext.pool);
+            res.status(200).json({ orgs });
+        } catch (e) {
+            console.error('internal GET /orgs:', e.message || e);
+            res.status(500).json({ error: 'List failed' });
+        }
+    });
+
     router.post('/orgs', async (req, res) => {
         const slug = req.body && req.body.slug;
         const name = (req.body && req.body.name) || slug;
@@ -547,8 +567,20 @@ function mountInternalAdminRoutes(app) {
 
     app.use('/internal/v1', router);
     console.log(
-        'Collector: internal admin API at POST /internal/v1/orgs, POST /internal/v1/keys/revoke (INTERNAL_ADMIN_TOKEN)'
+        'Collector: internal admin API at GET|POST /internal/v1/orgs, POST /internal/v1/keys/revoke (INTERNAL_ADMIN_TOKEN)'
     );
+}
+
+/** Static UI for org provisioning (same origin as API). Enabled only with INTERNAL_ADMIN_TOKEN + Postgres. */
+function mountInternalAdminPortal(app) {
+    const expected = process.env.INTERNAL_ADMIN_TOKEN;
+    if (!tenantContext || !expected || String(expected).trim() === '') {
+        return;
+    }
+    const adminDir = path.join(__dirname, 'admin-portal');
+    app.get('/internal/admin', (_req, res) => res.redirect(302, '/internal/admin/'));
+    app.use('/internal/admin', express.static(adminDir));
+    console.log('Collector: internal admin portal at GET /internal/admin/');
 }
 
 async function start() {
@@ -568,6 +600,7 @@ async function start() {
         }
     }
     mountInternalAdminRoutes(app);
+    mountInternalAdminPortal(app);
     app.listen(PORT, '0.0.0.0', () =>
         console.log(
             `🚀 Collector live on :${PORT} | warehouse: ${WAREHOUSE_PATH} | max ${WAREHOUSE_MAX_BYTES}B | summary last ${SUMMARY_MAX_LINES} lines` +

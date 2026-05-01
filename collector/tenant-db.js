@@ -203,6 +203,16 @@ async function provisionOrgAndPublishableKey(pool, slug, displayName, pepper, ke
 /**
  * Revoke key matching plaintext (prefix + hash). Returns number of rows updated (0 or 1).
  */
+/**
+ * @returns {Promise<Array<{ id: string; slug: string; name: string; created_at: Date }>>}
+ */
+async function listOrganizations(pool) {
+    const { rows } = await pool.query(
+        `SELECT id, slug, name, created_at FROM organizations ORDER BY created_at DESC`
+    );
+    return rows;
+}
+
 async function revokePublishableKey(pool, pepper, rawKey) {
     if (!rawKey || typeof rawKey !== 'string') return 0;
     const trimmed = rawKey.trim();
@@ -229,4 +239,5 @@ module.exports = {
     deleteRecentEventsBySessionUrl,
     provisionOrgAndPublishableKey,
     revokePublishableKey,
+    listOrganizations,
 };

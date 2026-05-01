@@ -2,7 +2,7 @@
 /**
  * Provision an organization + publishable key (prints key once).
  *
- *   DATABASE_URL=... PUBLISHABLE_KEY_PEPPER=... npm run create-org -- <slug> [name]
+ *   DATABASE_URL=... PUBLISHABLE_KEY_PEPPER=... npm run create-org -- <slug> [words of display name...]
  *
  * Same PUBLISHABLE_KEY_PEPPER must be used by the collector when verifying keys.
  */
@@ -14,14 +14,15 @@ async function main() {
     const databaseUrl = process.env.DATABASE_URL;
     const pepper = process.env.PUBLISHABLE_KEY_PEPPER;
     const slug = process.argv[2];
-    const name = process.argv[3] || slug;
+    const nameRest = process.argv.slice(3).join(' ').trim();
+    const name = nameRest || slug;
 
     if (!databaseUrl || !pepper) {
         console.error('Set DATABASE_URL and PUBLISHABLE_KEY_PEPPER.');
         process.exit(1);
     }
     if (!slug || String(slug).trim() === '') {
-        console.error('Usage: npm run create-org -- <slug> [display-name]');
+        console.error('Usage: npm run create-org -- <slug> [display name words…]');
         process.exit(1);
     }
 

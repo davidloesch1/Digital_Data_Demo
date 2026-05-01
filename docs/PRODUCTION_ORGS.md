@@ -90,24 +90,33 @@ Use this after a key appears in logs, chat, screenshots, or a former teammate le
 
 ---
 
-## 5. Internal admin HTTP API (optional)
+## 5. Internal admin (browser portal + HTTP API)
 
-When **`INTERNAL_ADMIN_TOKEN`** is set on the collector **and** Postgres is enabled, these routes are mounted:
+When **`INTERNAL_ADMIN_TOKEN`** is set on the collector **and** Postgres is enabled:
+
+### Browser portal (same origin as the collector)
+
+Open **`GET /internal/admin/`** on your collector public URL (e.g. `https://your-service.up.railway.app/internal/admin/`). Paste the admin token once; it is stored only in **session storage**. From there you can list orgs, provision a new org + **`nx_pub_…`** key, or revoke a key.
+
+Anyone who can load that URL sees the login screen; only callers with the token can use the API. Prefer a **long random token**, Railway/VPC-only access if you ever need stricter network isolation, and **do not** embed the admin token in the lab site or git.
+
+### HTTP API (Postman / automation)
 
 | Method | Path | Body | Response |
 |--------|------|------|----------|
+| `GET` | `/internal/v1/orgs` | — | `{ "orgs": [ { "id", "slug", "name", "created_at" } ] }` |
 | `POST` | `/internal/v1/orgs` | `{ "slug": "acme", "name": "Acme" }` | `{ "org_slug", "publishable_key" }` — key shown once |
 | `POST` | `/internal/v1/keys/revoke` | `{ "publishable_key": "nx_pub_…" }` | `{ "ok": true, "revoked": 0 \| 1 }` |
 
 Authenticate with **`Authorization: Bearer <INTERNAL_ADMIN_TOKEN>`** or **`X-Nexus-Admin-Token`**.
 
-Treat this token like a root credential: long random value, only on Railway secrets, never in the browser repo. If you do not need HTTP provisioning, leave **`INTERNAL_ADMIN_TOKEN`** unset and use **`npm run create-org`** / **`npm run revoke-key`** only.
+If you do not need HTTP or UI provisioning, leave **`INTERNAL_ADMIN_TOKEN`** unset and use **`npm run create-org`** / **`npm run revoke-key`** only.
 
 ---
 
 ## 6. What’s still manual (next iterations)
 
-- Customer-facing **portal** UI (the internal API above covers ops-only provisioning).
+- Customer-facing **self-serve** portal (signup, billing, customer-managed keys — distinct from **`/internal/admin/`**).
 - **`/v1/discard`**, retention policies, and stronger abuse controls.
 - Replacing inline keys with **short-lived tokens** if customers require stricter exposure.
 

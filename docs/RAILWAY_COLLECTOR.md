@@ -41,6 +41,7 @@ Set on the **collector** service (see **`docs/PRODUCTION_ORGS.md`**):
 
 - `DATABASE_URL` (from Postgres plugin / reference)
 - `PUBLISHABLE_KEY_PEPPER`
+- `INTERNAL_ADMIN_TOKEN` (optional long random secret — enables **`https://<your-service>/internal/admin/`** and **`/internal/v1/*`** ops API)
 - `CORS_ORIGINS`
 - `DISABLE_LEGACY_FILE_WAREHOUSE=true` when using only `/v1/*`
 
