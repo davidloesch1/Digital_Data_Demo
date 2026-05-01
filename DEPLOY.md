@@ -13,8 +13,9 @@ Target: **one collector API** (Node + JSONL on disk) and **static hosting** for 
 | `WAREHOUSE_MAX_BYTES`      | After each write, the oldest JSONL lines are removed until the file is under ~90% of this size (keeps disk usage bounded).                | `524288000` (500 MiB) |
 | `SUMMARY_MAX_LINES`      | `GET /summary` returns only the **most recent** *N* non-empty lines (parsed JSON), so the dashboard payload stays small.                    | `1000`               |
 | `SUMMARY_QUERY_LIMIT_CAP` | Maximum allowed `?limit=` on `/summary` (caps ad-hoc browser queries).                                                                  | `5000`               |
-| `DATABASE_URL`            | Postgres connection string. When set with `PUBLISHABLE_KEY_PEPPER`, **`/v1/ingest`** and **`/v1/summary`** are enabled (multi-tenant). File `/collect` still works in parallel unless you remove it later. | (unset)              |
+| `DATABASE_URL`            | Postgres connection string. When set with `PUBLISHABLE_KEY_PEPPER`, **`/v1/ingest`** and **`/v1/summary`** are enabled (multi-tenant). Legacy **`/collect`** / **`/summary`** still work **in parallel** until you opt into org-only mode (below). | (unset)              |
 | `PUBLISHABLE_KEY_PEPPER`  | Server secret used to hash browser publishable keys (`nx_pub_…`). **Must** match the value used when running `npm run create-org` in `collector/`. | (unset)              |
+| `DISABLE_LEGACY_FILE_WAREHOUSE` | When **`true`** (and Postgres is configured), **`POST /collect`**, **`GET /summary`**, and **`POST /discard`** return **410**; only **`/v1/*`** + publishable key accepted—recommended for **production org-only** deploys. | (unset / false)      |
 
 Endpoints: `POST /collect`, `GET /summary` (optional `?limit=`), `POST /discard`, `GET /health`.
 
@@ -28,6 +29,12 @@ npm run create-org -- my-org-slug "Display name"
 ```
 
 The script prints a **`nx_pub_…`** key once; store it in your customer/snippet config. Keys are stored **hashed**; the pepper must never ship to browsers.
+
+### Org-only production (recommended path)
+
+Step-by-step checklist: **`docs/PRODUCTION_ORGS.md`**.
+
+Summary: Postgres + **`DATABASE_URL`** + **`PUBLISHABLE_KEY_PEPPER`** → provision org/key with **`npm run create-org`** → point **`lab_site`** at **`/v1`** by setting **`window.NEXUS_PUBLISHABLE_KEY`** before **`nexus-env.js`** (see above) → set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** once the UI no longer calls **`/collect`**.
 
 ### Summary vs disk
 

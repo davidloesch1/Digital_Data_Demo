@@ -30,6 +30,27 @@ const SUMMARY_QUERY_LIMIT_CAP = (() => {
     return Number.isFinite(n) && n > 0 ? n : 5000;
 })();
 
+function envTruthy(name) {
+    const v = process.env[name];
+    if (v === undefined || v === null || String(v).trim() === '') return false;
+    const s = String(v).toLowerCase().trim();
+    return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+/** When Postgres is on and this is true, /collect /summary /discard return 410 (product / org-only mode). */
+function legacyFileWarehouseDisabled() {
+    return Boolean(tenantContext && envTruthy('DISABLE_LEGACY_FILE_WAREHOUSE'));
+}
+
+function rejectLegacyFileRoutes(res) {
+    res.status(410).json({
+        error: 'Legacy file warehouse is disabled for this deployment',
+        ingest: 'POST /v1/ingest',
+        summary: 'GET /v1/summary',
+        hint: 'Use a publishable key (Authorization: Bearer nx_pub_…). Re-enable file routes only for migration by unsetting DISABLE_LEGACY_FILE_WAREHOUSE.',
+    });
+}
+
 const warehouseDir = path.dirname(WAREHOUSE_PATH);
 try {
     fs.mkdirSync(warehouseDir, { recursive: true });
@@ -198,10 +219,18 @@ app.get('/health', async (_req, res) => {
     } else {
         body.database = 'not_configured';
     }
+    if (legacyFileWarehouseDisabled()) {
+        body.legacy_file_warehouse = 'disabled';
+    } else if (tenantContext) {
+        body.legacy_file_warehouse = 'enabled_parallel';
+    } else {
+        body.legacy_file_warehouse = 'file_only';
+    }
     res.status(200).json(body);
 });
 
 app.post('/collect', (req, res) => {
+    if (legacyFileWarehouseDisabled()) return rejectLegacyFileRoutes(res);
     const dnaPackage = req.body;
     dnaPackage.server_timestamp = new Date().toISOString();
     const logEntry = JSON.stringify(dnaPackage) + '\n';
@@ -218,6 +247,7 @@ app.post('/collect', (req, res) => {
 });
 
 app.get('/summary', async (req, res) => {
+    if (legacyFileWarehouseDisabled()) return rejectLegacyFileRoutes(res);
     try {
         if (!warehouseExists()) return res.json([]);
         const limit = parseSummaryLimit(req);
@@ -231,6 +261,7 @@ app.get('/summary', async (req, res) => {
 });
 
 app.post('/discard', (req, res) => {
+    if (legacyFileWarehouseDisabled()) return rejectLegacyFileRoutes(res);
     const { session_url } = req.body;
     if (!warehouseExists()) return res.status(404).send();
 
@@ -354,6 +385,9 @@ async function start() {
                 process.env.PUBLISHABLE_KEY_PEPPER || ''
             );
             console.log('Collector: multi-tenant Postgres enabled (/v1/ingest, /v1/summary)');
+            if (envTruthy('DISABLE_LEGACY_FILE_WAREHOUSE')) {
+                console.log('Collector: legacy file routes disabled (DISABLE_LEGACY_FILE_WAREHOUSE)');
+            }
         } catch (e) {
             console.error('Collector: DATABASE_URL set but Postgres init failed:', e.message);
             process.exit(1);
