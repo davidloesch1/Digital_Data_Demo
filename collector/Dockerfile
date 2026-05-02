@@ -5,7 +5,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY tenant-db.js collector.js ./
+COPY tenant-db.js collector.js console-bff.js console-jwt.js ./
+COPY sdk ./sdk/
 COPY admin-portal ./admin-portal/
 
 ENV NODE_ENV=production

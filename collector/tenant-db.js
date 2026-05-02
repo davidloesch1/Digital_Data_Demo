@@ -56,6 +56,20 @@ async function ensureSchema(client) {
         CREATE INDEX IF NOT EXISTS idx_behavior_events_org_created
         ON behavior_events (org_id, created_at DESC);
     `);
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS console_magic_tokens (
+            id UUID PRIMARY KEY,
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            email TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            expires_at TIMESTAMPTZ NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_console_magic_tokens_hash
+        ON console_magic_tokens (token_hash);
+    `);
 }
 
 /**
@@ -213,6 +227,48 @@ async function listOrganizations(pool) {
     return rows;
 }
 
+/** @returns {Promise<{ id: string; slug: string } | null>} */
+async function getOrganizationBySlug(pool, slug) {
+    const s = String(slug || '').trim();
+    if (!s) return null;
+    const { rows } = await pool.query(
+        `SELECT id, slug FROM organizations WHERE lower(slug) = lower($1) LIMIT 1`,
+        [s]
+    );
+    return rows[0] || null;
+}
+
+/**
+ * @returns {Promise<{ plainToken: string }>}
+ */
+async function createConsoleMagicToken(pool, orgId, email) {
+    const plainToken = crypto.randomBytes(32).toString('base64url');
+    const tokenHash = crypto.createHash('sha256').update(plainToken, 'utf8').digest('hex');
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+    const id = crypto.randomUUID();
+    await pool.query(
+        `INSERT INTO console_magic_tokens (id, org_id, email, token_hash, expires_at)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [id, orgId, email, tokenHash, expiresAt.toISOString()]
+    );
+    return { plainToken };
+}
+
+/**
+ * @returns {Promise<{ org_id: string; email: string } | null>}
+ */
+async function consumeConsoleMagicToken(pool, plainToken) {
+    if (!plainToken || typeof plainToken !== 'string') return null;
+    const tokenHash = crypto.createHash('sha256').update(plainToken.trim(), 'utf8').digest('hex');
+    const { rows } = await pool.query(
+        `DELETE FROM console_magic_tokens
+         WHERE token_hash = $1 AND expires_at > now()
+         RETURNING org_id, email`,
+        [tokenHash]
+    );
+    return rows[0] || null;
+}
+
 async function revokePublishableKey(pool, pepper, rawKey) {
     if (!rawKey || typeof rawKey !== 'string') return 0;
     const trimmed = rawKey.trim();
@@ -240,4 +296,7 @@ module.exports = {
     provisionOrgAndPublishableKey,
     revokePublishableKey,
     listOrganizations,
+    getOrganizationBySlug,
+    createConsoleMagicToken,
+    consumeConsoleMagicToken,
 };

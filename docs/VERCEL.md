@@ -33,20 +33,29 @@ Optional: `NEXUS_COLLECT_BASE`, `NEXUS_DASH_API` — override POST vs dashboard 
 
 ---
 
-## 3. Collector CORS
+## 3. Magic link login (Resend)
 
-Allow your **`.vercel.app`** (or custom) console origin on **`CORS_ORIGINS`**. Allow each **customer property origin** that POSTs captures as well.
+Serverless routes live under **`lab_console/api/`** (e.g. **`/api/auth/magic-request`**, **`/api/summary`**). Set **`NEXUS_COLLECTOR_ORIGIN`**, **`CONSOLE_BFF_SECRET`**, **`CONSOLE_PUBLIC_URL`**, **`RESEND_API_KEY`**, **`RESEND_FROM`** on the Vercel project (see **`docs/CONSOLE_AUTH.md`**). On the collector, set matching **`CONSOLE_BFF_SECRET`** and optional **`CONSOLE_JWT_SECRET`**.
+
+The dashboard calls **`/api/summary`** first (session cookie). Local static serve without those routes still uses **`NEXUS_PUBLISHABLE_KEY`** fallback.
 
 ---
 
-## 4. Smoke test
+## 4. Collector CORS
 
-1. Open **`…/dashboard.html`** — warehouse fetch should hit **`…/v1/summary`** when the key is injected.
+Allow your **`.vercel.app`** (or custom) console origin on **`CORS_ORIGINS`** for **browser→collector** calls (e.g. segmentation or legacy direct summary). Magic-link **`/api/summary`** is Vercel→collector server-side and does not rely on browser CORS to the collector.
+
+---
+
+## 5. Smoke test
+
+1. Open **`…/login.html`** → request link → complete magic link → **`…/dashboard.html`** loads data via **`/api/summary`**, or use publishable-key fallback without auth routes.
 2. **`GET /health`** on the collector: **`multi_tenant: true`**, **`database: connected`**.
 
 ---
 
 ## See also
 
+- **`docs/CONSOLE_AUTH.md`** — magic link + env reference.
 - **`docs/PRODUCTION_ORGS.md`** — Postgres, pepper, `create-org`, `DISABLE_LEGACY_FILE_WAREHOUSE`.
 - **`DEPLOY.md`** — collector env reference.

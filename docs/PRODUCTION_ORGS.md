@@ -2,6 +2,8 @@
 
 Use this when you want **real product behavior**: each customer’s events live under an **organization** in Postgres, keyed by a **publishable** API key—not one shared `warehouse.jsonl` file.
 
+**Manual provisioning & sharing:** **`docs/OWNER_ONBOARDING.md`** — create org, copy snippet block for website owners, CORS checklist.
+
 ---
 
 ## 1. Collector (e.g. Railway)
@@ -37,6 +39,8 @@ The console tree loads **`js/nexus-env.secrets.js`** then **`js/nexus-env.js`**.
 **Product UI:** **`console/index.html`**, **`dashboard.html`**, **`segmentation.html`** live under **`lab_console/`**.
 
 **Instrumented customer pages:** minimal **`packages/browser/nexus-snippet.js`** + inline config — see **`packages/browser/README.md`**.
+
+**Hosted console login:** magic link + Resend — **`docs/CONSOLE_AUTH.md`**.
 
 ### Option A — inline before `nexus-env.secrets.js` (simplest)
 

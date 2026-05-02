@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Nexus Console · Sign in</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/console-shell.css" />
+    <style>
+        .login-main { max-width: 420px; margin: 0 auto; padding: 48px 20px 80px; }
+        .login-card {
+            background: rgba(30, 41, 59, 0.65);
+            border: 1px solid var(--console-border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+        .login-card h1 { font-size: 1.25rem; margin: 0 0 0.5rem; letter-spacing: -0.02em; }
+        .login-card p.lead { color: var(--console-muted); font-size: 0.9rem; margin: 0 0 1.25rem; line-height: 1.45; }
+        .login-card label { display: block; font-size: 0.78rem; color: var(--console-muted); margin-bottom: 0.35rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .login-card input {
+            width: 100%; padding: 0.55rem 0.65rem; border-radius: 8px;
+            border: 1px solid var(--console-border); background: rgba(15, 23, 42, 0.9); color: var(--console-text);
+            font-family: inherit; font-size: 0.95rem; margin-bottom: 1rem; box-sizing: border-box;
+        }
+        .login-card button.primary {
+            width: 100%; padding: 0.65rem; border-radius: 8px; border: none; cursor: pointer;
+            background: var(--console-primary); color: #0f172a; font-weight: 600; font-size: 0.95rem;
+        }
+        .login-card button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+        .login-msg { margin-top: 1rem; font-size: 0.88rem; color: var(--console-muted); min-height: 1.25rem; }
+        .login-msg.err { color: #f0b4b4; }
+        .login-msg.ok { color: #a8e6c4; }
+        .login-back { margin-top: 1.25rem; font-size: 0.85rem; }
+        .login-back a { color: var(--console-primary); text-decoration: none; font-weight: 600; }
+        .login-back a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body class="console-page">
+    <header class="console-topbar" role="banner">
+        <a class="console-topbar__brand" href="console/index.html">Nexus<span>Console</span></a>
+    </header>
+    <main class="login-main">
+        <div class="login-card">
+            <h1>Sign in</h1>
+            <p class="lead">Enter your organization slug and email. We’ll send a one-time link (via Resend). No password to remember.</p>
+            <form id="login-form">
+                <label for="orgSlug">Organization slug</label>
+                <input id="orgSlug" name="orgSlug" type="text" autocomplete="organization" placeholder="e.g. acme-corp" required />
+                <label for="email">Work email</label>
+                <input id="email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required />
+                <button type="submit" class="primary" id="btn-send">Email me a link</button>
+            </form>
+            <p id="msg" class="login-msg" role="status"></p>
+            <p class="login-back"><a href="console/index.html">← Console home</a></p>
+        </div>
+    </main>
+    <script>
+(function () {
+    var params = new URLSearchParams(window.location.search);
+    var err = params.get("err");
+    var msg = document.getElementById("msg");
+    if (err && msg) {
+        msg.className = "login-msg err";
+        var map = {
+            missing_token: "Login link was incomplete. Request a new link.",
+            invalid_or_expired: "That link is invalid or expired. Request a new one.",
+            server_config: "Server configuration error. Ask your admin.",
+            bad_session: "Could not start session. Try again.",
+            collector_unreachable: "Could not reach the API. Try again later.",
+        };
+        msg.textContent = map[err] || "Something went wrong. Try again.";
+    }
+    var form = document.getElementById("login-form");
+    var next = params.get("next") || "/dashboard.html";
+    var safeNext = next.indexOf("/") === 0 && next.indexOf("//") !== 0 ? next : "/dashboard.html";
+    form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+        var orgSlug = document.getElementById("orgSlug").value.trim();
+        var email = document.getElementById("email").value.trim();
+        var btn = document.getElementById("btn-send");
+        msg.className = "login-msg";
+        msg.textContent = "";
+        btn.disabled = true;
+        try {
+            var r = await fetch("/api/auth/magic-request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ orgSlug: orgSlug, email: email, next: safeNext }),
+            });
+            var data = {};
+            try {
+                data = await r.json();
+            } catch (_) {}
+            if (!r.ok) {
+                msg.className = "login-msg err";
+                msg.textContent = data.error || "Request failed (" + r.status + ")";
+                return;
+            }
+            msg.className = "login-msg ok";
+            msg.textContent = "Check your inbox for the login link.";
+        } catch (err) {
+            msg.className = "login-msg err";
+            msg.textContent = "Network error. Try again.";
+        } finally {
+            btn.disabled = false;
+        }
+    });
+})();
+    </script>
+</body>
+</html>

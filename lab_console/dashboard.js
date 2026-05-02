@@ -1171,18 +1171,36 @@
 
     async function fetchData() {
         try {
-            var summaryPath =
-                (typeof window !== "undefined" && window.NEXUS_SUMMARY_PATH) || "/summary";
-            var url = API_BASE.replace(/\/?$/, "") + summaryPath;
-            var pk =
-                typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
-                    ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
-                    : "";
-            var fetchOpts = {};
-            if (pk) fetchOpts.headers = { Authorization: "Bearer " + pk };
-            var response = await fetch(url, fetchOpts);
-            if (!response.ok) throw new Error("HTTP " + response.status);
-            var data = await response.json();
+            var data = null;
+            var pr = await fetch("/api/summary", { credentials: "same-origin" });
+            if (pr.status === 401) {
+                window.location.href =
+                    "/login.html?next=" +
+                    encodeURIComponent(
+                        (window.location.pathname || "/dashboard.html") + (window.location.search || "")
+                    );
+                return;
+            }
+            if (pr.ok) {
+                var pct = pr.headers.get("content-type") || "";
+                if (pct.indexOf("application/json") !== -1) {
+                    data = await pr.json();
+                }
+            }
+            if (data === null) {
+                var summaryPath =
+                    (typeof window !== "undefined" && window.NEXUS_SUMMARY_PATH) || "/summary";
+                var url = API_BASE.replace(/\/?$/, "") + summaryPath;
+                var pk =
+                    typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+                        ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+                        : "";
+                var fetchOpts = {};
+                if (pk) fetchOpts.headers = { Authorization: "Bearer " + pk };
+                var response = await fetch(url, fetchOpts);
+                if (!response.ok) throw new Error("HTTP " + response.status);
+                data = await response.json();
+            }
 
             if (!data || !data.length) {
                 globalSessions = {};
@@ -1295,7 +1313,10 @@
         } catch (err) {
             console.error("Dashboard fetch error:", err);
             clearFullStoryMomentUI();
-            setStatus(false, "Cannot reach API (" + API_BASE + "). Start collector: node collector.js");
+            setStatus(
+                false,
+                "Cannot reach warehouse API (try Log in for hosted console, or collector + publishable key for local)."
+            );
         }
     }
 

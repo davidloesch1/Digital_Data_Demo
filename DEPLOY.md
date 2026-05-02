@@ -17,6 +17,9 @@ Target: **one collector API** (Node + JSONL on disk), **static hosting** for the
 | `PUBLISHABLE_KEY_PEPPER`  | Server secret used to hash browser publishable keys (`nx_pub_…`). **Must** match the value used when running `npm run create-org` in `collector/`. | (unset)              |
 | `INTERNAL_ADMIN_TOKEN` | Long random secret. With Postgres, enables internal **`GET /internal/admin/`** portal (session token only), **`GET /internal/v1/orgs`**, **`POST /internal/v1/orgs`**, **`POST /internal/v1/keys/revoke`** — auth via **`Authorization: Bearer …`** or **`X-Nexus-Admin-Token`**. Omit if you only use CLI scripts. | (unset)              |
 | `DISABLE_LEGACY_FILE_WAREHOUSE` | When **`true`** (and Postgres is configured), **`POST /collect`**, **`GET /summary`**, and **`POST /discard`** return **410**; only **`/v1/*`** + publishable key accepted—recommended for **production org-only** deploys. | (unset / false)      |
+| `CONSOLE_BFF_SECRET` | Shared bearer secret for Vercel serverless → **`POST /bff/v1/magic-token`**, **`POST /bff/v1/magic-redeem`**. Enables magic-link console login. | (unset)              |
+| `CONSOLE_JWT_SECRET` | Signs session JWTs for **`GET /bff/v1/summary`** (Bearer). Defaults to **`CONSOLE_BFF_SECRET`** if unset. | (unset)              |
+| `CONSOLE_SESSION_TTL_SEC` | Console JWT lifetime in seconds (default **604800**, max **2592000**). | (unset)              |
 
 Endpoints: `POST /collect`, `GET /summary` (optional `?limit=`), `POST /discard`, `GET /health`. With Postgres: `POST /v1/ingest`, `GET /v1/summary`, `POST /v1/discard` (publishable key on all three).
 
@@ -77,6 +80,8 @@ Scripts load **`js/nexus-env.js`** (under **`lab_console/`** or on a customer si
 Pages load **`js/nexus-env.secrets.js`** then **`js/nexus-env.js`**. Override inline **before** the secrets script, or use Vercel env + `npm run build` (see **`docs/PRODUCTION_ORGS.md`**).
 
 **Customer sites (minimal snippet):** copy **`packages/browser/nexus-snippet.js`** to your static host (or serve from this repo path) and follow **`packages/browser/README.md`** — inline **`NEXUS_PUBLISHABLE_KEY`** + **`NEXUS_API_BASE`**, then one **`<script src="…/nexus-snippet.js">`** for coarse kinetic ingest without the full lab UI.
+
+**Hosted console (Vercel) magic link:** see **`docs/CONSOLE_AUTH.md`** — collector **`CONSOLE_BFF_SECRET`** + Resend on Vercel.
 
 ```html
 <script>window.NEXUS_PUBLISHABLE_KEY = "nx_pub_…";</script>

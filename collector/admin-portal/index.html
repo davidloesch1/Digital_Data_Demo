@@ -153,12 +153,27 @@
     th { color: var(--muted); font-weight: 500; }
     .hidden { display: none !important; }
     code { font-size: 0.85em; background: var(--bg); padding: 0.15rem 0.35rem; border-radius: 4px; }
+    .snippet-block {
+      width: 100%;
+      min-height: 220px;
+      box-sizing: border-box;
+      margin-top: 0.5rem;
+      font-family: ui-monospace, monospace;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      padding: 0.75rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      resize: vertical;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <h1>Nexus collector · Internal admin</h1>
-    <p class="sub">Provision orgs and keys against this collector’s database. Requires <code>INTERNAL_ADMIN_TOKEN</code> on the server. Token stays in this browser only (session storage).</p>
+    <p class="sub">Provision orgs and keys against this collector’s database. Requires <code>INTERNAL_ADMIN_TOKEN</code> on the server. Token stays in this browser only (session storage). After each new org you get a ready-to-paste <strong>&lt;head&gt;</strong> snippet that loads <code>/sdk/nexus-snippet.js</code>.</p>
 
     <section id="step-login" class="panel">
       <h2>Sign in</h2>
@@ -205,10 +220,19 @@
         </div>
         <div id="provision-flash" class="flash err"></div>
         <div id="provision-result" class="hidden">
-          <p style="margin: 0.75rem 0 0; color: var(--muted); font-size: 0.85rem;">Publishable key (copy once — not stored server-side):</p>
+          <p style="margin: 0.75rem 0 0; color: var(--muted); font-size: 0.85rem;">
+            <strong>Customer <code>&lt;head&gt;</code> snippet</strong> — paste on their site (after FullStory if used). Loads <code>/sdk/nexus-snippet.js</code> from your collector.
+          </p>
+          <label for="collector-public-url">Collector base URL (<code>NEXUS_API_BASE</code>)</label>
+          <input id="collector-public-url" type="text" autocomplete="off" placeholder="Defaults to this browser origin" />
+          <textarea id="snippet-html" class="snippet-block" readonly rows="14" aria-label="Embed snippet HTML"></textarea>
+          <div class="actions">
+            <button type="button" class="ghost" id="btn-copy-snippet">Copy snippet</button>
+          </div>
+          <p style="margin: 1.25rem 0 0.35rem; color: var(--muted); font-size: 0.85rem;">Publishable key (same as in snippet — copy once, not stored server-side):</p>
           <div class="key-out" id="new-key"></div>
           <div class="actions">
-            <button type="button" class="ghost" id="btn-copy-key">Copy key</button>
+            <button type="button" class="ghost" id="btn-copy-key">Copy key only</button>
           </div>
         </div>
       </section>
@@ -312,12 +336,68 @@
     });
   }
 
-  function escapeHtml(s) {
-    if (s == null) return '';
-    var d = document.createElement('div');
-    d.textContent = String(s);
-    return d.innerHTML;
-  }
+    function escapeHtml(s) {
+      if (s == null) return '';
+      var d = document.createElement('div');
+      d.textContent = String(s);
+      return d.innerHTML;
+    }
+
+    var lastProvisionedKey = '';
+    var lastProvisionedSlug = '';
+
+    function escapeForJsDoubleQuoted(s) {
+      return String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, '\\n');
+    }
+
+    function escapeHtmlAttr(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    }
+
+    function buildSnippetHtml(key, apiBaseRaw, orgSlug) {
+      var base = String(apiBaseRaw || '').trim().replace(/\/+$/, '');
+      if (!base) base = window.location.origin;
+      var scriptSrc = base + '/sdk/nexus-snippet.js';
+      var slugComment = orgSlug ? orgSlug : 'unknown';
+      var sOpen = '<' + 'script>';
+      var sClose = '<' + '/' + 'script>';
+      return (
+        '<!-- Nexus capture · org: ' +
+        slugComment +
+        ' — paste in <head> (after FullStory if you use it) -->\n' +
+        sOpen +
+        '\n' +
+        '  window.NEXUS_PUBLISHABLE_KEY = "' +
+        escapeForJsDoubleQuoted(key) +
+        '";\n' +
+        '  window.NEXUS_API_BASE = "' +
+        escapeForJsDoubleQuoted(base) +
+        '";\n' +
+        sClose +
+        '\n' +
+        sOpen +
+        ' src="' +
+        escapeHtmlAttr(scriptSrc) +
+        '" defer>' +
+        sClose +
+        '\n'
+      );
+    }
+
+    function updateSnippetPreview() {
+      var ta = document.getElementById('snippet-html');
+      if (!ta || !lastProvisionedKey) return;
+      var urlEl = document.getElementById('collector-public-url');
+      var base =
+        urlEl && urlEl.value.trim()
+          ? urlEl.value.trim().replace(/\/+$/, '')
+          : window.location.origin;
+      try {
+        ta.value = buildSnippetHtml(lastProvisionedKey, base, lastProvisionedSlug);
+      } catch (e) {
+        ta.value = '<!-- Snippet build error: ' + String(e.message || e) + ' -->';
+      }
+    }
 
   function showApp(show) {
     document.getElementById('step-login').classList.toggle('hidden', show);
@@ -372,9 +452,14 @@
         slug: slug,
         name: name || slug,
       });
-      document.getElementById('new-key').textContent = out.publishable_key || '';
+      lastProvisionedKey = out.publishable_key || '';
+      lastProvisionedSlug = out.org_slug || slug;
+      document.getElementById('new-key').textContent = lastProvisionedKey;
+      var urlInput = document.getElementById('collector-public-url');
+      if (urlInput && !urlInput.value.trim()) urlInput.value = window.location.origin;
+      updateSnippetPreview();
       result.classList.remove('hidden');
-      showFlash(flash, true, 'Org ready. Copy the key below into Vercel / clients.');
+      showFlash(flash, true, 'Org ready — copy the snippet below for site owners.');
       document.getElementById('slug').value = '';
       document.getElementById('name').value = '';
       await refreshOrgs();
@@ -382,6 +467,27 @@
       showFlash(flash, false, e.message || 'Provision failed');
     }
   });
+
+  var elCollectorUrl = document.getElementById('collector-public-url');
+  if (elCollectorUrl) {
+    elCollectorUrl.addEventListener('input', function () {
+      updateSnippetPreview();
+    });
+  }
+
+  var btnCopySnippet = document.getElementById('btn-copy-snippet');
+  if (btnCopySnippet) {
+    btnCopySnippet.addEventListener('click', async function () {
+    var t = document.getElementById('snippet-html').value;
+    if (!t) return;
+    try {
+      await navigator.clipboard.writeText(t);
+      showFlash(document.getElementById('provision-flash'), true, 'Snippet copied to clipboard.');
+    } catch (e) {
+      alert('Copy failed — select the snippet manually.');
+    }
+    });
+  }
 
   document.getElementById('btn-copy-key').addEventListener('click', async function () {
     var t = document.getElementById('new-key').textContent;

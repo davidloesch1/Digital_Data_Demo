@@ -7,6 +7,7 @@ const fsp = fs.promises;
 const path = require('path');
 const readline = require('readline');
 const tenantDbApi = require('./tenant-db.js');
+const { mountConsoleBffRoutes } = require('./console-bff.js');
 
 /** @type {{ pool: import('pg').Pool; pepper: string } | null} */
 let tenantContext = null;
@@ -123,6 +124,19 @@ const app = express();
 app.use(corsMiddleware);
 app.use(bodyParser.json({ limit: '2mb' }));
 
+/** Public SDK snippet (same file as packages/browser/nexus-snippet.js — keep in sync). */
+const sdkSnippetPath = path.join(__dirname, 'sdk', 'nexus-snippet.js');
+app.get('/sdk/nexus-snippet.js', (_req, res) => {
+    res.type('application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.sendFile(sdkSnippetPath, (err) => {
+        if (err) {
+            console.error('sdk snippet sendFile:', err.message);
+            res.status(404).type('text/plain').send('SDK snippet not found on server');
+        }
+    });
+});
+
 /** Root URL in browser — there is no HTML app here, only API routes. */
 app.get('/', (_req, res) => {
     const body = {
@@ -131,6 +145,7 @@ app.get('/', (_req, res) => {
         message: 'Use GET /health. Ingest: POST /v1/ingest (or legacy POST /collect if enabled).',
         endpoints: {
             health: 'GET /health',
+            sdk_snippet: 'GET /sdk/nexus-snippet.js',
             ingest_v1: 'POST /v1/ingest',
             summary_v1: 'GET /v1/summary',
             discard_v1: 'POST /v1/discard',
@@ -147,6 +162,10 @@ app.get('/', (_req, res) => {
         body.internal_admin_portal = 'GET /internal/admin';
         body.internal_admin_api =
             'GET /internal/v1/orgs | POST /internal/v1/orgs | POST /internal/v1/keys/revoke';
+    }
+    if (tenantContext && process.env.CONSOLE_BFF_SECRET && String(process.env.CONSOLE_BFF_SECRET).trim() !== '') {
+        body.console_bff =
+            'POST /bff/v1/magic-token | POST /bff/v1/magic-redeem | GET /bff/v1/summary (Bearer JWT)';
     }
     res.status(200).json(body);
 });
@@ -607,6 +626,11 @@ async function start() {
     }
     mountInternalAdminRoutes(app);
     mountInternalAdminPortal(app);
+    mountConsoleBffRoutes(app, {
+        tenantDbApi,
+        getTenantContext: () => tenantContext,
+        parseSummaryLimit,
+    });
     app.listen(PORT, '0.0.0.0', () =>
         console.log(
             `🚀 Collector live on :${PORT} | warehouse: ${WAREHOUSE_PATH} | max ${WAREHOUSE_MAX_BYTES}B | summary last ${SUMMARY_MAX_LINES} lines` +
