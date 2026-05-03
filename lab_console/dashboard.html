@@ -57,6 +57,15 @@
     <div class="dash-shell">
         <aside>
             <div class="dash-aside__logo">Live warehouse</div>
+            <div class="dash-scope-toolbar" id="scope-toolbar" aria-live="polite">
+                <span class="dash-scope-chip dash-scope-chip--all" id="scope-chip">All sessions</span>
+                <button type="button" class="btn-refresh" id="btn-scope-expand-user" hidden>Expand to user</button>
+                <button type="button" class="btn-refresh" id="btn-scope-clear" hidden>Show all</button>
+                <label class="dash-scope-toggle"
+                    ><input type="checkbox" id="scope-show-population" aria-label="Show population ghosted" />Show
+                    population (ghosted)</label
+                >
+            </div>
             <div class="label">Sessions &amp; DNA rows</div>
             <div id="session-list"></div>
             <div class="dash-aside__footer">
@@ -108,6 +117,26 @@
                     <input type="text" id="dash-reverse-visitor" class="dash-input dash-input--grow" placeholder="Visitor key" hidden />
                     <button type="button" class="btn-refresh" id="btn-dash-reverse-search">Search events</button>
                 </div>
+            </div>
+
+            <div class="card card--fs-upload dash-extra-card" id="dash-fs-upload-card">
+                <h3 class="card-heading">FullStory Event Stream (CSV)</h3>
+                <p class="card-sub">
+                    Upload a FullStory Event Stream export (<code>text/csv</code>) to the collector. Events are stored per org and
+                    appear on the session/visitor timeline and in prototype matching when you set
+                    <code>filters.fs_signal_thresholds</code> on a cluster.
+                </p>
+                <div class="fs-upload-dropzone" id="fs-upload-dropzone" role="button" tabindex="0">
+                    <input type="file" id="fs-csv-input" accept=".csv,text/csv" hidden />
+                    <span class="fs-upload-dropzone__hint">Drop CSV here or click to choose · max ~50k rows / 10 MB per request</span>
+                </div>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label">
+                        <input type="checkbox" id="fs-upload-autofocus" />
+                        Auto-focus first uploaded session
+                    </label>
+                </div>
+                <p id="fs-upload-status" class="fs-upload-status" aria-live="polite"></p>
             </div>
 
             <div class="card card--prototype dash-extra-card" id="dash-prototype-card">
@@ -226,6 +255,48 @@
                     <strong>Together with PCA:</strong> the scatter compresses 16-D into 2-D for clustering; this view preserves <em>all</em> dimensions so you can see which axes separate sessions.
                     Selecting a session in the list emphasizes its rows.
                 </p>
+            </div>
+
+            <div class="card card--chart card--timeline-block dash-extra-card">
+                <div class="card-header">
+                    <div>
+                        <div class="label">Cluster vs time</div>
+                        <h2 class="card-heading">Prototype timeline</h2>
+                        <p class="card-sub">
+                            Kinetic rows by <strong>timestamp</strong> (horizontal) and <strong>matched prototype</strong> (vertical lane). Respects session / visitor focus.
+                        </p>
+                        <p id="prototype-timeline-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div class="chart-container dash-timeline-host">
+                    <canvas id="prototype-timeline" aria-label="Prototype timeline by timestamp"></canvas>
+                </div>
+            </div>
+
+            <div class="card card--label-breakdown dash-extra-card">
+                <div class="card-header">
+                    <div>
+                        <div class="label">Cluster vs labels</div>
+                        <h2 class="card-heading">Label breakdown by prototype</h2>
+                        <p class="card-sub">Top warehouse <code>label</code> values per matched prototype in the current scope.</p>
+                    </div>
+                </div>
+                <div id="label-breakdown-grid" class="label-breakdown-grid" aria-live="polite"></div>
+            </div>
+
+            <div class="card card--transitions dash-extra-card">
+                <div class="card-header">
+                    <div>
+                        <div class="label">Within-session flow</div>
+                        <h2 class="card-heading">Prototype transitions</h2>
+                        <p class="card-sub">
+                            Consecutive prototype pairs along timestamp order within each session. Darker cells = more frequent jumps.
+                        </p>
+                    </div>
+                </div>
+                <div id="transition-heatmap-wrap" class="transition-heatmap-wrap">
+                    <div id="transition-heatmap" class="transition-heatmap" aria-live="polite"></div>
+                </div>
             </div>
 
             <div class="card card--chart card--dim-strip">

@@ -520,7 +520,21 @@ app.post('/v1/discard', async (req, res) => {
     res.status(200).json({ ok: true, discarded: removed });
 });
 
-mountV1DashboardRoutes(app, { tenantContext, tenantDbApi, extractPublishableKey });
+/** Raw CSV body for FullStory Event Stream imports (10 MB cap). */
+const csvUploadMiddleware = bodyParser.text({
+    limit: '10mb',
+    type: (req) => {
+        const ct = String(req.headers['content-type'] || '').toLowerCase();
+        return ct.includes('text/csv') || ct.includes('application/csv') || ct === 'text/plain';
+    },
+});
+
+mountV1DashboardRoutes(app, {
+    tenantContext,
+    tenantDbApi,
+    extractPublishableKey,
+    csvUploadMiddleware,
+});
 
 /** POST /internal/v1/orgs, POST /internal/v1/keys/revoke — bearer INTERNAL_ADMIN_TOKEN */
 function mountInternalAdminRoutes(app) {
@@ -558,7 +572,7 @@ function mountInternalAdminRoutes(app) {
         next();
     });
 
-    addInternalDashboardRoutes(router, { tenantContext, tenantDbApi });
+    addInternalDashboardRoutes(router, { tenantContext, tenantDbApi, csvUploadMiddleware });
 
     router.get('/orgs', async (_req, res) => {
         try {

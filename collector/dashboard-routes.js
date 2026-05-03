@@ -1,6 +1,7 @@
 'use strict';
 
 const SEARCH_LIMIT_CAP = 5000;
+const fullstoryCsv = require('./fullstory-csv.js');
 
 function parseSearchLimit(req) {
     const q = req.query && req.query.limit;
@@ -12,10 +13,10 @@ function parseSearchLimit(req) {
 
 /**
  * @param {import('express').Application} app
- * @param {{ tenantContext: any, tenantDbApi: any, extractPublishableKey: (req: any) => string | null }} deps
+ * @param {{ tenantContext: any, tenantDbApi: any, extractPublishableKey: (req: any) => string | null, csvUploadMiddleware?: import('express').RequestHandler }} deps
  */
 function mountV1DashboardRoutes(app, deps) {
-    const { tenantContext, tenantDbApi, extractPublishableKey } = deps;
+    const { tenantContext, tenantDbApi, extractPublishableKey, csvUploadMiddleware } = deps;
     if (!tenantContext) return;
 
     async function requireOrg(req, res) {
@@ -266,8 +267,109 @@ function mountV1DashboardRoutes(app, deps) {
         }
     });
 
+    async function handleFullstoryCsvUpload(req, res, orgIdUuid) {
+        const text = typeof req.body === 'string' ? req.body : '';
+        if (!text || !String(text).trim()) {
+            return res.status(400).json({ error: 'empty body' });
+        }
+        const prep = fullstoryCsv.fullstoryCsvToInserts(text, { maxRows: 50000 });
+        try {
+            const batch = await tenantDbApi.insertFullstoryEventsBatch(tenantContext.pool, orgIdUuid, prep.inserts);
+            await tenantDbApi.recomputeFsSessionMetrics(tenantContext.pool, orgIdUuid, prep.sessionsTouched);
+            res.status(200).json({
+                inserted: batch.inserted,
+                skipped: batch.skipped,
+                sessions: prep.sessionsTouched,
+                rowCount: prep.rowCount,
+                truncated: Boolean(prep.truncated),
+            });
+        } catch (e) {
+            console.error('POST /v1/fullstory/events/upload-csv:', e);
+            res.status(500).json({ error: 'Upload failed' });
+        }
+    }
+
+    if (csvUploadMiddleware) {
+        app.post('/v1/fullstory/events/upload-csv', csvUploadMiddleware, async (req, res) => {
+            const org = await requireOrg(req, res);
+            if (!org) return;
+            await handleFullstoryCsvUpload(req, res, org.orgId);
+        });
+    }
+
+    app.get('/v1/fullstory/events', async (req, res) => {
+        const org = await requireOrg(req, res);
+        if (!org) return;
+        const q = req.query || {};
+        const session_id =
+            q.session_id != null && String(q.session_id).trim() !== ''
+                ? String(q.session_id).trim()
+                : null;
+        const session_url =
+            q.session_url != null && String(q.session_url).trim() !== ''
+                ? String(q.session_url).trim()
+                : null;
+        const visitor_key =
+            q.visitor_key != null && String(q.visitor_key).trim() !== ''
+                ? String(q.visitor_key).trim()
+                : null;
+        const since = q.since != null && String(q.since).trim() !== '' ? String(q.since).trim() : null;
+        const until = q.until != null && String(q.until).trim() !== '' ? String(q.until).trim() : null;
+        const limit = parseSearchLimit(req);
+        try {
+            const data = await tenantDbApi.listFullstoryEvents(tenantContext.pool, org.orgId, {
+                session_id,
+                session_url,
+                visitor_key,
+                since,
+                until,
+                limit,
+            });
+            res.setHeader('X-Fullstory-Events-Returned', String(data.length));
+            res.status(200).json(data);
+        } catch (e) {
+            const msg = e && e.message;
+            if (msg === 'session_or_visitor_required') {
+                return res.status(400).json({
+                    error: 'Provide session_id, session_url, or visitor_key',
+                });
+            }
+            console.error('GET /v1/fullstory/events:', e);
+            res.status(500).json({ error: 'Read failed' });
+        }
+    });
+
+    app.get('/v1/fullstory/sessions', async (req, res) => {
+        const org = await requireOrg(req, res);
+        if (!org) return;
+        const q = req.query || {};
+        const sessionIdsRaw = q.session_ids != null ? String(q.session_ids).trim() : '';
+        const sessionIds = sessionIdsRaw
+            ? sessionIdsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+            : [];
+        const since = q.since != null && String(q.since).trim() !== '' ? String(q.since).trim() : null;
+        const until = q.until != null && String(q.until).trim() !== '' ? String(q.until).trim() : null;
+        const limit = parseSearchLimit(req);
+        try {
+            let rows;
+            if (sessionIds.length) {
+                rows = await tenantDbApi.getFullstorySessionMetricsByIds(tenantContext.pool, org.orgId, sessionIds);
+            } else {
+                rows = await tenantDbApi.listFullstorySessionMetrics(tenantContext.pool, org.orgId, {
+                    since,
+                    until,
+                    limit,
+                });
+            }
+            res.status(200).json(rows);
+        } catch (e) {
+            console.error('GET /v1/fullstory/sessions:', e);
+            res.status(500).json({ error: 'Read failed' });
+        }
+    });
+
     console.log(
-        'Collector: GET|POST /v1/clusters, /v1/cohorts, /v1/segmentation/manifest, /v1/search/events (publishable key)'
+        'Collector: GET|POST /v1/clusters, /v1/cohorts, /v1/segmentation/manifest, /v1/search/events, /v1/fullstory/* (publishable key)'
     );
 }
 
@@ -291,7 +393,7 @@ function extractSessionIdFromFsUrl(url) {
  * @param {import('express').Router} router
  */
 function addInternalDashboardRoutes(router, deps) {
-    const { tenantContext, tenantDbApi } = deps;
+    const { tenantContext, tenantDbApi, csvUploadMiddleware } = deps;
     if (!tenantContext) return;
 
     async function orgFromReq(req) {
@@ -548,6 +650,115 @@ function addInternalDashboardRoutes(router, deps) {
             }
             console.error('internal search/events:', e);
             res.status(500).json({ error: 'Search failed' });
+        }
+    });
+
+    async function internalHandleFullstoryCsvUpload(req, res) {
+        const org = await orgFromReq(req);
+        if (!org) {
+            return res.status(400).json({ error: 'org_slug required (query or body)' });
+        }
+        const text = typeof req.body === 'string' ? req.body : '';
+        if (!text || !String(text).trim()) {
+            return res.status(400).json({ error: 'empty body' });
+        }
+        const prep = fullstoryCsv.fullstoryCsvToInserts(text, { maxRows: 50000 });
+        try {
+            const batch = await tenantDbApi.insertFullstoryEventsBatch(tenantContext.pool, org.orgId, prep.inserts);
+            await tenantDbApi.recomputeFsSessionMetrics(tenantContext.pool, org.orgId, prep.sessionsTouched);
+            res.status(200).json({
+                inserted: batch.inserted,
+                skipped: batch.skipped,
+                sessions: prep.sessionsTouched,
+                rowCount: prep.rowCount,
+                truncated: Boolean(prep.truncated),
+            });
+        } catch (e) {
+            console.error('internal POST /fullstory/events/upload-csv:', e);
+            res.status(500).json({ error: 'Upload failed' });
+        }
+    }
+
+    if (csvUploadMiddleware) {
+        router.post('/fullstory/events/upload-csv', csvUploadMiddleware, internalHandleFullstoryCsvUpload);
+    }
+
+    router.get('/fullstory/events', async (req, res) => {
+        const q = req.query || {};
+        const orgSlug = q.org_slug != null ? String(q.org_slug).trim() : '';
+        if (!orgSlug) {
+            return res.status(400).json({ error: 'org_slug query required' });
+        }
+        const session_id =
+            q.session_id != null && String(q.session_id).trim() !== ''
+                ? String(q.session_id).trim()
+                : null;
+        const session_url =
+            q.session_url != null && String(q.session_url).trim() !== ''
+                ? String(q.session_url).trim()
+                : null;
+        const visitor_key =
+            q.visitor_key != null && String(q.visitor_key).trim() !== ''
+                ? String(q.visitor_key).trim()
+                : null;
+        const since = q.since != null && String(q.since).trim() !== '' ? String(q.since).trim() : null;
+        const until = q.until != null && String(q.until).trim() !== '' ? String(q.until).trim() : null;
+        const limit = parseSearchLimit(req);
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, orgSlug);
+            if (!org) return res.status(404).json({ error: 'Unknown org_slug' });
+            const data = await tenantDbApi.listFullstoryEvents(tenantContext.pool, org.id, {
+                session_id,
+                session_url,
+                visitor_key,
+                since,
+                until,
+                limit,
+            });
+            res.setHeader('X-Fullstory-Events-Returned', String(data.length));
+            res.status(200).json(data);
+        } catch (e) {
+            const msg = e && e.message;
+            if (msg === 'session_or_visitor_required') {
+                return res.status(400).json({
+                    error: 'Provide session_id, session_url, or visitor_key',
+                });
+            }
+            console.error('internal GET /fullstory/events:', e);
+            res.status(500).json({ error: 'Read failed' });
+        }
+    });
+
+    router.get('/fullstory/sessions', async (req, res) => {
+        const q = req.query || {};
+        const orgSlug = q.org_slug != null ? String(q.org_slug).trim() : '';
+        if (!orgSlug) {
+            return res.status(400).json({ error: 'org_slug query required' });
+        }
+        const sessionIdsRaw = q.session_ids != null ? String(q.session_ids).trim() : '';
+        const sessionIds = sessionIdsRaw
+            ? sessionIdsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+            : [];
+        const since = q.since != null && String(q.since).trim() !== '' ? String(q.since).trim() : null;
+        const until = q.until != null && String(q.until).trim() !== '' ? String(q.until).trim() : null;
+        const limit = parseSearchLimit(req);
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, orgSlug);
+            if (!org) return res.status(404).json({ error: 'Unknown org_slug' });
+            let rows;
+            if (sessionIds.length) {
+                rows = await tenantDbApi.getFullstorySessionMetricsByIds(tenantContext.pool, org.id, sessionIds);
+            } else {
+                rows = await tenantDbApi.listFullstorySessionMetrics(tenantContext.pool, org.id, {
+                    since,
+                    until,
+                    limit,
+                });
+            }
+            res.status(200).json(rows);
+        } catch (e) {
+            console.error('internal GET /fullstory/sessions:', e);
+            res.status(500).json({ error: 'Read failed' });
         }
     });
 }

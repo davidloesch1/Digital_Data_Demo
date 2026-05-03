@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <base href="/internal/admin/master-dash/" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexus · Internal master dashboard</title>
+    <title>Nexus Console | Master discovery dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/dashboard.css">
@@ -34,7 +33,10 @@
 <body class="dash-page dash-page--master">
 
     <header class="dash-topbar" role="banner">
-        <div class="dash-topbar__brand">Nexus<span class="text-primary">Console</span> <span class="dash-master-badge">All orgs</span></div>
+        <div class="dash-topbar__brand">
+            Nexus<span class="text-primary">Console</span>
+            <span class="dash-master-badge">Master</span>
+        </div>
         <div id="dash-segment-banner" class="dash-segment-banner" hidden>
             <span class="dash-segment-banner__label">Segmentation</span>
             <span id="dash-segment-banner-text" class="dash-segment-banner__text"></span>
@@ -45,7 +47,9 @@
                 <label class="dash-org-switch__label" for="dash-org-switch">Organization</label>
                 <select id="dash-org-switch" class="dash-org-switch__select" aria-label="Active organization"></select>
             </div>
-            <a class="dash-nav-link" href="../">← Internal admin</a>
+            <a class="dash-nav-link" href="console/index.html">Console home</a>
+            <a class="dash-nav-link" href="segmentation.html">Segmentation</a>
+            <a class="dash-nav-link" href="/api/auth/logout">Log out</a>
             <button type="button" class="btn-dash-info" id="btn-dash-how-it-works" aria-haspopup="dialog" aria-controls="dash-info-modal">
                 How this works
             </button>
@@ -56,6 +60,15 @@
     <div class="dash-shell">
         <aside>
             <div class="dash-aside__logo">Live warehouse</div>
+            <div class="dash-scope-toolbar" id="scope-toolbar" aria-live="polite">
+                <span class="dash-scope-chip dash-scope-chip--all" id="scope-chip">All sessions</span>
+                <button type="button" class="btn-refresh" id="btn-scope-expand-user" hidden>Expand to user</button>
+                <button type="button" class="btn-refresh" id="btn-scope-clear" hidden>Show all</button>
+                <label class="dash-scope-toggle"
+                    ><input type="checkbox" id="scope-show-population" aria-label="Show population ghosted" />Show
+                    population (ghosted)</label
+                >
+            </div>
             <div class="label">Sessions &amp; DNA rows</div>
             <div id="session-list"></div>
             <div class="dash-aside__footer">
@@ -109,6 +122,26 @@
                 </div>
             </div>
 
+            <div class="card card--fs-upload dash-extra-card" id="dash-fs-upload-card">
+                <h3 class="card-heading">FullStory Event Stream (CSV)</h3>
+                <p class="card-sub">
+                    Upload a FullStory Event Stream export (<code>text/csv</code>) to the collector. Events are stored per org and
+                    appear on the session/visitor timeline and in prototype matching when you set
+                    <code>filters.fs_signal_thresholds</code> on a cluster.
+                </p>
+                <div class="fs-upload-dropzone" id="fs-upload-dropzone" role="button" tabindex="0">
+                    <input type="file" id="fs-csv-input" accept=".csv,text/csv" hidden />
+                    <span class="fs-upload-dropzone__hint">Drop CSV here or click to choose · max ~50k rows / 10 MB per request</span>
+                </div>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label">
+                        <input type="checkbox" id="fs-upload-autofocus" />
+                        Auto-focus first uploaded session
+                    </label>
+                </div>
+                <p id="fs-upload-status" class="fs-upload-status" aria-live="polite"></p>
+            </div>
+
             <div class="card card--prototype dash-extra-card" id="dash-prototype-card">
                 <h3 class="card-heading">Cluster prototypes &amp; cohorts</h3>
                 <p class="card-sub">Save a <strong>named prototype</strong> from a k-means slot (16-D centroid). Snapshot visitors into a cohort and push segmentation vars for the SDK manifest.</p>
@@ -140,7 +173,7 @@
                         <div>
                             <div class="label">Behavioral discovery cloud</div>
                             <h2 class="card-heading">K-means clusters on kinetic fingerprints</h2>
-                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Use <strong>Cloud points</strong> to plot one dot per kinetic row, per FullStory session (mean fingerprint), or per visitor (mean across sessions when <code>nexus_user_key</code> is present). This page loads <strong>all orgs</strong> from <code>GET /internal/v1/master-summary</code> (Postgres warehouse), not per-org <code>/v1/summary</code>.</p>
+                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Use <strong>Cloud points</strong> to plot one dot per kinetic row, per FullStory session (mean fingerprint), or per visitor (mean across sessions when <code>nexus_user_key</code> is present). Data comes from <code>warehouse.jsonl</code> via <code>/summary</code>.</p>
                             <p id="pca-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
                             <details class="dash-details">
                                 <summary class="dash-details__summary">What are PC1 / PC2, and when is “fallback” used?</summary>
@@ -227,6 +260,48 @@
                 </p>
             </div>
 
+            <div class="card card--chart card--timeline-block dash-extra-card">
+                <div class="card-header">
+                    <div>
+                        <div class="label">Cluster vs time</div>
+                        <h2 class="card-heading">Prototype timeline</h2>
+                        <p class="card-sub">
+                            Kinetic rows by <strong>timestamp</strong> (horizontal) and <strong>matched prototype</strong> (vertical lane). Respects session / visitor focus.
+                        </p>
+                        <p id="prototype-timeline-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
+                    </div>
+                </div>
+                <div class="chart-container dash-timeline-host">
+                    <canvas id="prototype-timeline" aria-label="Prototype timeline by timestamp"></canvas>
+                </div>
+            </div>
+
+            <div class="card card--label-breakdown dash-extra-card">
+                <div class="card-header">
+                    <div>
+                        <div class="label">Cluster vs labels</div>
+                        <h2 class="card-heading">Label breakdown by prototype</h2>
+                        <p class="card-sub">Top warehouse <code>label</code> values per matched prototype in the current scope.</p>
+                    </div>
+                </div>
+                <div id="label-breakdown-grid" class="label-breakdown-grid" aria-live="polite"></div>
+            </div>
+
+            <div class="card card--transitions dash-extra-card">
+                <div class="card-header">
+                    <div>
+                        <div class="label">Within-session flow</div>
+                        <h2 class="card-heading">Prototype transitions</h2>
+                        <p class="card-sub">
+                            Consecutive prototype pairs along timestamp order within each session. Darker cells = more frequent jumps.
+                        </p>
+                    </div>
+                </div>
+                <div id="transition-heatmap-wrap" class="transition-heatmap-wrap">
+                    <div id="transition-heatmap" class="transition-heatmap" aria-live="polite"></div>
+                </div>
+            </div>
+
             <div class="card card--chart card--dim-strip">
                 <div class="card-header">
                     <div>
@@ -268,7 +343,7 @@
                     <p class="dash-modal__eyebrow">Discovery dashboard</p>
                     <h2 id="dash-info-modal-title" class="dash-modal__title">Fingerprints, warehouse, and charts</h2>
                     <p id="dash-info-modal-desc" class="dash-modal__lede">
-                        Same visualization as the org dashboard, but this page loads <strong>every organization’s</strong> recent rows via <code>GET /internal/v1/master-summary</code>, authorized with the same <strong>internal admin token</strong> you used to unlock the admin portal (stored in session storage).
+                        A short guide to how kinetic fingerprints are produced, how they land in this view, and how to interpret what you see.
                     </p>
                 </div>
                 <form method="dialog" class="dash-modal__close-form">
@@ -277,22 +352,13 @@
             </header>
 
             <div class="dash-modal__body">
-                <section class="dash-modal__section dash-modal__section--master-local" aria-labelledby="dash-info-h-master">
-                    <h3 id="dash-info-h-master" class="dash-modal__h">Internal admin · all orgs</h3>
-                    <p>
-                        Data comes from <code>GET /internal/v1/master-summary</code> with <code>Authorization: Bearer</code> using your internal admin token. Anyone who can provision orgs with that token can read this merged warehouse — treat the token like root access.
-                    </p>
-                    <p>
-                        Sessions in the sidebar are prefixed with <strong>org slug</strong> when the same FullStory session id could appear under more than one tenant. Open this page only after unlocking <a href="../">internal admin</a> so the token is present in session storage.
-                    </p>
-                </section>
                 <section class="dash-modal__section" aria-labelledby="dash-info-h-pipeline">
                     <h3 id="dash-info-h-pipeline" class="dash-modal__h">1 · From sessions to fingerprints</h3>
                     <p>
                         In the lab, FullStory captures interaction bundles (pointer moves, scrolls, etc.). A web worker normalizes those events into short motion features, runs them through a trained sequence model, and emits a <strong>16-number vector</strong> (the fingerprint) when movement energy crosses a threshold and a challenge phase label is active.
                     </p>
                     <p>
-                        Each capture is stored in the collector database per org. This master view merges recent rows across tenants (see <strong>Internal admin · all orgs</strong> above). The dashboard does not recompute embeddings; it <strong>visualizes what was stored</strong>.
+                        Each capture is written to the collector as JSON (for example in <code>warehouse.jsonl</code>) with fields such as <code>label</code>, <code>session_url</code>, and <code>fingerprint</code>. This dashboard loads that warehouse via <code>/summary</code>—it does not recompute embeddings; it <strong>visualizes what was stored</strong>.
                     </p>
                 </section>
 
@@ -329,12 +395,19 @@
     <script src="js/nexus-env.secrets.js"></script>
     <script>
         (function () {
-            try {
-                var tok = sessionStorage.getItem("nexus_internal_admin_token");
-                if (tok) window.NEXUS_LOCAL_MASTER_TOKEN = tok;
-            } catch (_e) {}
-            var u = new URL(window.location.href);
-            window.NEXUS_DASH_DIRECT_SUMMARY_URL = u.origin + "/internal/v1/master-summary";
+            var o =
+                typeof window.NEXUS_MASTER_COLLECTOR_ORIGIN === "string" && window.NEXUS_MASTER_COLLECTOR_ORIGIN.trim() !== ""
+                    ? String(window.NEXUS_MASTER_COLLECTOR_ORIGIN).trim()
+                    : typeof window.location !== "undefined" &&
+                        window.location.origin &&
+                        window.location.protocol !== "file:"
+                      ? window.location.origin
+                      : "http://127.0.0.1:3000";
+            o = o.replace(/\/+$/, "");
+            if (!/^https?:\/\//i.test(o)) {
+                o = "http://" + o.replace(/^\/+/, "");
+            }
+            window.NEXUS_DASH_DIRECT_SUMMARY_URL = o + "/internal/v1/master-summary";
             window.NEXUS_DASH_MASTER_ORG_SCOPE = true;
         })();
     </script>

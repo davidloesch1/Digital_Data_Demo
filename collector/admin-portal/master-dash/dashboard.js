@@ -39,11 +39,24 @@
     let selectedSid = null;
     let selectedUserKey = null;
     let lastWarehouseRows = [];
+    /** Focus scope: narrows charts to one session or visitor; optional population ghost. */
+    let viewScope = { mode: "all", sid: null, visitorKey: null, showPopulation: false };
+    let lastAxisTitles = { x: "PC1", y: "PC2" };
+    let lastPcaEmptyHint = null;
+    /** After reverse search, auto-apply session or user focus when rows load. */
+    let pendingReverseFocus = null;
+    /** Warehouse rows came from reverse search (Show all should refetch summary). */
+    let datasetFromReverseSearch = false;
+    let prototypeTimelineChart = null;
     let dimensionCharts = [];
     /** Saved cluster prototypes from GET /v1/clusters or GET /internal/v1/clusters */
     let behaviorPrototypes = [];
     /** Last k-means result (same order as chart). */
     let lastClusterResult = { clusters: [], centroids: [] };
+    /** FullStory Event Stream payloads for the current session/visitor focus (from collector). */
+    let lastFsEvents = [];
+    /** Map session key → fullstory_session_metrics row (for prototype thresholds + persona FS block). */
+    let fsSessionMetricsBySid = {};
 
     function $(id) {
         return document.getElementById(id);
@@ -202,6 +215,578 @@
         return Math.abs(h);
     }
 
+    function pointMatchesKineticScope(p) {
+        if (viewScope.mode === "all") return true;
+        if (viewScope.mode === "session") return viewScope.sid != null && p.sid === viewScope.sid;
+        if (viewScope.mode === "user") {
+            var uk = viewScope.visitorKey != null ? String(viewScope.visitorKey).trim() : "";
+            return p.userKey && String(p.userKey).trim() === uk;
+        }
+        return true;
+    }
+
+    function rowMatchesWarehouseScope(r) {
+        if (!M || viewScope.mode === "all") return true;
+        var sid = M.getSessionKey(r);
+        if (viewScope.mode === "session") return viewScope.sid != null && sid === viewScope.sid;
+        if (viewScope.mode === "user") {
+            var uk = viewScope.visitorKey != null ? String(viewScope.visitorKey).trim() : "";
+            return r.nexus_user_key && String(r.nexus_user_key).trim() === uk;
+        }
+        return true;
+    }
+
+    function getScopedKineticPoints() {
+        var all = lastKineticPoints || [];
+        if (!all.length || viewScope.mode === "all") {
+            return { focused: all, ghost: [] };
+        }
+        var focused = all.filter(pointMatchesKineticScope);
+        var ghost =
+            viewScope.showPopulation && viewScope.mode !== "all"
+                ? all.filter(function (p) {
+                      return !pointMatchesKineticScope(p);
+                  })
+                : [];
+        return { focused: focused, ghost: ghost };
+    }
+
+    function getScopedRows() {
+        var rows = lastWarehouseRows || [];
+        if (viewScope.mode === "all") return rows;
+        return rows.filter(rowMatchesWarehouseScope);
+    }
+
+    function getGhostRows() {
+        if (viewScope.mode === "all" || !viewScope.showPopulation) return [];
+        var rows = lastWarehouseRows || [];
+        return rows.filter(function (r) {
+            return !rowMatchesWarehouseScope(r);
+        });
+    }
+
+    function filterClustersForDisplay(km) {
+        if (!km || !km.clusters) return { clusters: [], centroids: km.centroids || [] };
+        if (viewScope.mode === "all") return km;
+        var clusters = km.clusters.map(function (cl) {
+            return cl.filter(pointMatchesKineticScope);
+        });
+        return { clusters: clusters, centroids: km.centroids };
+    }
+
+    function syncScopeToolbar() {
+        var chip = $("scope-chip");
+        var exp = $("btn-scope-expand-user");
+        var clr = $("btn-scope-clear");
+        var pop = $("scope-show-population");
+        if (chip) {
+            chip.className =
+                "dash-scope-chip" +
+                (viewScope.mode === "session"
+                    ? " dash-scope-chip--session"
+                    : viewScope.mode === "user"
+                      ? " dash-scope-chip--user"
+                      : " dash-scope-chip--all");
+            var orgHint =
+                MASTER_ORG_SCOPE && selectedSid && viewScope.mode === "session"
+                    ? ""
+                    : "";
+            if (viewScope.mode === "all") {
+                chip.textContent = "All sessions";
+            } else if (viewScope.mode === "session" && viewScope.sid) {
+                chip.textContent =
+                    "Session · #" +
+                    truncateLabel(String(viewScope.sid), 36) +
+                    (orgHint ? "" : "");
+            } else if (viewScope.mode === "user" && viewScope.visitorKey) {
+                chip.textContent =
+                    "Visitor · " + truncateLabel(String(viewScope.visitorKey), 28);
+            } else {
+                chip.textContent = "Focused";
+            }
+        }
+        if (pop) pop.checked = !!viewScope.showPopulation;
+        if (clr) clr.hidden = viewScope.mode === "all";
+        if (exp) {
+            var canExpand = false;
+            if (viewScope.mode === "session" && viewScope.sid && globalSessions[viewScope.sid]) {
+                var sr = globalSessions[viewScope.sid];
+                var ui;
+                for (ui = 0; ui < sr.length; ui++) {
+                    if (sr[ui].nexus_user_key && String(sr[ui].nexus_user_key).trim()) {
+                        canExpand = true;
+                        break;
+                    }
+                }
+            }
+            exp.hidden = !canExpand;
+        }
+    }
+
+    function augmentPcaCaptionScope() {
+        var capEl = $("pca-caption");
+        if (!capEl) return;
+        var base = capEl.getAttribute("data-base-caption") || capEl.textContent || "";
+        if (!capEl.getAttribute("data-base-caption") && base) {
+            capEl.setAttribute("data-base-caption", base);
+        }
+        base = capEl.getAttribute("data-base-caption") || "";
+        var scoped = getScopedKineticPoints();
+        var extra = "";
+        if (viewScope.mode !== "all") {
+            extra =
+                " · Focus: " +
+                (viewScope.mode === "session"
+                    ? "session #" + truncateLabel(String(viewScope.sid || ""), 40)
+                    : "visitor " + truncateLabel(String(viewScope.visitorKey || ""), 32)) +
+                " · " +
+                scoped.focused.length +
+                " pt(s)";
+            if (viewScope.showPopulation && scoped.ghost.length) {
+                extra += " · population ghosted (" + scoped.ghost.length + ")";
+            }
+        }
+        capEl.textContent = base + extra;
+    }
+
+    function refreshScopedCharts() {
+        var kmDisp = filterClustersForDisplay(lastClusterResult);
+        var scoped = getScopedKineticPoints();
+        renderCloud(kmDisp, lastAxisTitles, lastPcaEmptyHint, scoped.ghost);
+        augmentPcaCaptionScope();
+        renderParallelPanel();
+        renderDimensionCharts(getScopedRows(), getGhostRows());
+        renderPersonaStrip();
+        renderPrototypeTimeline();
+        renderLabelBreakdown();
+        renderTransitionHeatmap();
+    }
+
+    function setViewScope(next) {
+        var sp = next.showPopulation !== undefined ? next.showPopulation : viewScope.showPopulation;
+        if (next.mode === "all") {
+            viewScope = { mode: "all", sid: null, visitorKey: null, showPopulation: sp };
+            lastFsEvents = [];
+        } else if (next.mode === "session") {
+            viewScope = {
+                mode: "session",
+                sid: next.sid != null ? next.sid : null,
+                visitorKey: null,
+                showPopulation: sp,
+            };
+        } else if (next.mode === "user") {
+            viewScope = {
+                mode: "user",
+                sid: null,
+                visitorKey: next.visitorKey != null ? next.visitorKey : null,
+                showPopulation: sp,
+            };
+        }
+        syncScopeToolbar();
+        void refreshScopedChartsAfterFs();
+    }
+
+    function clearViewScopeFromUi() {
+        if (datasetFromReverseSearch) {
+            datasetFromReverseSearch = false;
+            viewScope = { mode: "all", sid: null, visitorKey: null, showPopulation: false };
+            selectedSid = null;
+            selectedUserKey = null;
+            lastFsEvents = [];
+            fetchData();
+            return;
+        }
+        viewScope = { mode: "all", sid: null, visitorKey: null, showPopulation: false };
+        selectedSid = null;
+        selectedUserKey = null;
+        lastFsEvents = [];
+        syncScopeToolbar();
+        renderSessionList();
+        refreshScopedCharts();
+        clearFullStoryMomentUI();
+    }
+
+    async function expandSessionToUserFromUi() {
+        if (viewScope.mode !== "session" || !viewScope.sid) return;
+        var rows = globalSessions[viewScope.sid] || [];
+        var uk = null;
+        var i;
+        for (i = 0; i < rows.length; i++) {
+            if (rows[i].nexus_user_key && String(rows[i].nexus_user_key).trim()) {
+                uk = String(rows[i].nexus_user_key).trim();
+                break;
+            }
+        }
+        if (!uk) {
+            alert("No nexus_user_key on this session's rows.");
+            return;
+        }
+        if (!NexusReverseSearch) return;
+        var base = API_BASE.replace(/\/?$/, "");
+        var internal = DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1;
+        try {
+            if (internal) base = new URL(DIRECT_SUMMARY_URL).origin;
+        } catch (_e) {}
+        var q = {
+            mode: "visitor",
+            visitorKey: uk,
+            sessionUrl: "",
+            since:
+                $("dash-filter-since") && $("dash-filter-since").value
+                    ? $("dash-filter-since").value
+                    : "",
+            until:
+                $("dash-filter-until") && $("dash-filter-until").value
+                    ? $("dash-filter-until").value
+                    : "",
+            limit: 5000,
+            orgSlug: getMasterOrgSlugForSave() || undefined,
+        };
+        var url = NexusReverseSearch.buildSearchUrl({ internal: internal, baseUrl: base }, q);
+        var headers = {};
+        if (internal) {
+            var tok =
+                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
+                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
+                    : "";
+            if (tok) headers.Authorization = "Bearer " + tok;
+        } else {
+            var pk =
+                typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+                    ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+                    : "";
+            if (pk) headers.Authorization = "Bearer " + pk;
+        }
+        if (!headers.Authorization) {
+            alert("Sign in or set publishable key.");
+            return;
+        }
+        setStatus(true, "Loading visitor…");
+        try {
+            var r = await fetch(url, { headers: headers });
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            var data = await r.json();
+            var arr = Array.isArray(data) ? data : [];
+            pendingReverseFocus = { type: "user", key: uk };
+            datasetFromReverseSearch = true;
+            await processWarehouseRows(arr);
+            setStatus(true, "Expanded to visitor · " + arr.length + " row(s)");
+        } catch (e) {
+            console.error(e);
+            setStatus(false, "Expand to user failed.");
+        }
+    }
+
+    function renderLabelBreakdown() {
+        var host = $("label-breakdown-grid");
+        if (!host || !NexusBehaviorSummary || !NexusBehaviorSummary.buildLabelBreakdown) return;
+        var pts = getScopedKineticPoints().focused;
+        var blocks = NexusBehaviorSummary.buildLabelBreakdown(pts, { topPerProto: 8 });
+        host.innerHTML = "";
+        if (!blocks.length) {
+            host.innerHTML =
+                '<p class="explainer dim-strip-empty" role="status">No kinetic points in this scope.</p>';
+            return;
+        }
+        blocks.forEach(function (b) {
+            var col = document.createElement("div");
+            col.className = "label-breakdown-col";
+            col.style.borderLeft = "4px solid " + (b.color || "#64748b");
+            var h = document.createElement("div");
+            h.className = "label-breakdown-col__title";
+            h.textContent = b.name + " · " + (b.total || 0);
+            col.appendChild(h);
+            (b.labels || []).forEach(function (lb) {
+                var row = document.createElement("div");
+                row.className = "label-breakdown-row";
+                var meta = document.createElement("span");
+                meta.className = "label-breakdown-row__meta";
+                meta.textContent = truncateLabel(lb.label, 42);
+                meta.title = lb.label;
+                var bar = document.createElement("div");
+                bar.className = "label-breakdown-bar";
+                var fill = document.createElement("div");
+                fill.className = "label-breakdown-bar__fill";
+                fill.style.width = Math.round((lb.share || 0) * 100) + "%";
+                fill.style.backgroundColor = b.color || "#6366f1";
+                bar.appendChild(fill);
+                var pct = document.createElement("span");
+                pct.className = "label-breakdown-row__pct";
+                pct.textContent = Math.round((lb.share || 0) * 100) + "%";
+                row.appendChild(meta);
+                row.appendChild(bar);
+                row.appendChild(pct);
+                col.appendChild(row);
+            });
+            host.appendChild(col);
+        });
+    }
+
+    function renderTransitionHeatmap() {
+        var host = $("transition-heatmap");
+        if (!host || !NexusBehaviorSummary || !NexusBehaviorSummary.buildTransitionMatrix) return;
+        var pts = getScopedKineticPoints().focused;
+        var tm = NexusBehaviorSummary.buildTransitionMatrix(pts);
+        host.innerHTML = "";
+        if (!tm.ids.length) {
+            host.innerHTML =
+                '<p class="explainer dim-strip-empty" role="status">No transitions in this scope.</p>';
+            return;
+        }
+        var maxC = 0;
+        var r;
+        var c;
+        for (r = 0; r < tm.matrix.length; r++) {
+            for (c = 0; c < tm.matrix[r].length; c++) {
+                if (tm.matrix[r][c] > maxC) maxC = tm.matrix[r][c];
+            }
+        }
+        if (maxC <= 0) maxC = 1;
+        var table = document.createElement("table");
+        table.className = "transition-matrix";
+        var thead = document.createElement("thead");
+        var hr = document.createElement("tr");
+        var corner = document.createElement("th");
+        corner.className = "transition-corner";
+        hr.appendChild(corner);
+        tm.ids.forEach(function (id) {
+            var th = document.createElement("th");
+            th.textContent = truncateLabel(tm.names[id] || id, 16);
+            th.title = tm.names[id] || id;
+            hr.appendChild(th);
+        });
+        thead.appendChild(hr);
+        table.appendChild(thead);
+        var tbody = document.createElement("tbody");
+        for (r = 0; r < tm.ids.length; r++) {
+            var tr = document.createElement("tr");
+            var rowH = document.createElement("th");
+            rowH.textContent = truncateLabel(tm.names[tm.ids[r]] || tm.ids[r], 16);
+            rowH.title = tm.names[tm.ids[r]] || tm.ids[r];
+            tr.appendChild(rowH);
+            for (c = 0; c < tm.ids.length; c++) {
+                var td = document.createElement("td");
+                var v = tm.matrix[r][c];
+                td.className = "transition-cell" + (r === c ? " transition-cell--diag" : "");
+                td.textContent = v ? String(v) : "—";
+                var intensity = v / maxC;
+                td.style.backgroundColor =
+                    "rgba(99, 102, 241, " + (0.08 + intensity * 0.55).toFixed(3) + ")";
+                td.setAttribute("data-intensity", String(intensity));
+                (function (idFrom, idTo, val) {
+                    td.onclick = function () {
+                        console.log("transition cell", idFrom, "→", idTo, "n=", val);
+                    };
+                })(tm.ids[r], tm.ids[c], v);
+                tr.appendChild(td);
+            }
+            tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        host.appendChild(table);
+    }
+
+    function fsNativeEventColor(ev) {
+        var t = String(ev.EventType || ev.event_type || "").toLowerCase();
+        if (t.indexOf("click") >= 0) return "#34d399";
+        if (t.indexOf("navig") >= 0) return "#38bdf8";
+        if (t.indexOf("page") >= 0) return "#a78bfa";
+        if (t.indexOf("error") >= 0 || t.indexOf("err") >= 0) return "#f87171";
+        return "#94a3b8";
+    }
+
+    function parseFsPayloadTime(ev) {
+        var s = ev.EventStart || ev.eventstart || ev.event_start;
+        if (!s) return NaN;
+        return Date.parse(String(s));
+    }
+
+    function renderPrototypeTimeline() {
+        var canvas = $("prototype-timeline");
+        var cap = $("prototype-timeline-caption");
+        if (!canvas || !NexusBehaviorSummary || !NexusBehaviorSummary.buildPrototypeTimeline) return;
+        var pts = getScopedKineticPoints().focused;
+        var tl = NexusBehaviorSummary.buildPrototypeTimeline(pts);
+        if (prototypeTimelineChart) {
+            try {
+                prototypeTimelineChart.destroy();
+            } catch (_e) {}
+            prototypeTimelineChart = null;
+        }
+        var ctx = canvas.getContext("2d");
+        var hasKin = tl.events && tl.events.length > 0;
+        var fsPrepared = (lastFsEvents || [])
+            .map(function (ev) {
+                var tx = parseFsPayloadTime(ev);
+                return { t: tx, ev: ev };
+            })
+            .filter(function (d) {
+                return Number.isFinite(d.t);
+            });
+        var hasFs = fsPrepared.length > 0;
+        if (!hasKin && !hasFs) {
+            if (cap)
+                cap.textContent =
+                    "No kinetic timestamps or FullStory events in this scope — capture timestamps and/or upload a FullStory CSV, then focus a session or visitor.";
+            prototypeTimelineChart = new Chart(ctx, {
+                type: "scatter",
+                data: {
+                    datasets: [
+                        {
+                            label: "empty",
+                            data: [{ x: 0, y: 0 }],
+                            pointRadius: 0,
+                            backgroundColor: "transparent",
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: "Add timestamps or ingest FullStory CSV for this focus.",
+                            color: "#94a3b8",
+                            font: { size: 12 },
+                        },
+                        legend: { display: false },
+                    },
+                    scales: { x: { display: false }, y: { display: false } },
+                },
+            });
+            return;
+        }
+
+        var fsLaneIndex;
+        var laneCount;
+        if (hasKin) {
+            fsLaneIndex = hasFs ? tl.lanes.length : -1;
+            laneCount = tl.lanes.length + (hasFs ? 1 : 0);
+        } else {
+            fsLaneIndex = 0;
+            laneCount = 1;
+        }
+
+        if (cap) {
+            var parts = [];
+            if (hasKin) parts.push(tl.events.length + " kinetic");
+            if (hasFs) parts.push(fsPrepared.length + " FS");
+            if (hasKin) parts.push(tl.lanes.length + " prototype lane(s)");
+            cap.textContent = parts.join(" · ");
+        }
+
+        var datasets = [];
+        if (hasKin) {
+            var colors = tl.events.map(function (e) {
+                var lane = tl.lanes[e.lane];
+                return lane && lane.color ? lane.color : "#94a3b8";
+            });
+            datasets.push({
+                label: "kinetic",
+                data: tl.events.map(function (e) {
+                    return { x: e.t, y: e.lane, raw: e };
+                }),
+                pointBackgroundColor: colors,
+                pointBorderColor: "rgba(255,255,255,0.15)",
+                borderWidth: 1,
+                pointRadius: 6,
+                hoverRadius: 8,
+                pointStyle: "circle",
+            });
+        }
+        if (hasFs) {
+            var fsY = fsLaneIndex >= 0 ? fsLaneIndex : 0;
+            datasets.push({
+                label: "fullstory",
+                data: fsPrepared.map(function (d) {
+                    return { x: d.t, y: fsY, rawFs: d.ev };
+                }),
+                pointBackgroundColor: fsPrepared.map(function (d) {
+                    return fsNativeEventColor(d.ev);
+                }),
+                pointBorderColor: "rgba(255,255,255,0.2)",
+                borderWidth: 1,
+                pointRadius: 5,
+                hoverRadius: 7,
+                pointStyle: "rect",
+            });
+        }
+
+        prototypeTimelineChart = new Chart(ctx, {
+            type: "scatter",
+            data: { datasets: datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function (ctx) {
+                                var pt = ctx.raw;
+                                if (pt && pt.rawFs) {
+                                    var ev = pt.rawFs;
+                                    var lines = [
+                                        String(ev.EventStart || ""),
+                                        (String(ev.EventType || "") || "(type)") +
+                                            (ev.EventSubType ? " · " + ev.EventSubType : ""),
+                                    ];
+                                    var tt = ev.EventTargetText || ev.eventtargettext;
+                                    if (tt) lines.push(truncateLabel(String(tt), 56));
+                                    var sel = ev.EventTargetSelector || ev.eventtargetselector;
+                                    if (sel) {
+                                        var ss = String(sel);
+                                        lines.push(
+                                            "selector …" +
+                                                (ss.length > 44 ? ss.slice(ss.length - 44) : ss)
+                                        );
+                                    }
+                                    return lines;
+                                }
+                                var raw = pt && pt.raw ? pt.raw : null;
+                                if (!raw) return "";
+                                return [
+                                    new Date(raw.t).toISOString(),
+                                    raw.label ? truncateLabel(raw.label, 48) : "",
+                                    raw.similarity != null ? "sim " + raw.similarity.toFixed(2) : "",
+                                ].filter(Boolean);
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        type: "linear",
+                        title: { display: true, text: "Time (UTC ms)", color: "#64748b", font: { size: 11 } },
+                        ticks: { color: "#64748b", maxTicksLimit: 8 },
+                        grid: { color: "rgba(51,65,85,0.35)" },
+                    },
+                    y: {
+                        min: -0.5,
+                        max: laneCount - 0.5,
+                        title: {
+                            display: true,
+                            text: hasFs ? "Lane (prototype · FS)" : "Prototype lane",
+                            color: "#64748b",
+                            font: { size: 11 },
+                        },
+                        ticks: {
+                            color: "#64748b",
+                            stepSize: 1,
+                            callback: function (val) {
+                                var i = Math.round(Number(val));
+                                if (hasFs && i === fsLaneIndex) return "FS events";
+                                return tl.lanes[i] ? truncateLabel(tl.lanes[i].name, 22) : "";
+                            },
+                        },
+                        grid: { color: "rgba(51,65,85,0.35)" },
+                    },
+                },
+            },
+        });
+    }
+
     function getDimChallengeFilter() {
         var sel = $("dim-challenge");
         return sel ? sel.value || "" : "";
@@ -341,7 +926,7 @@
         }
     }
 
-    function renderDimensionCharts(allRows) {
+    function renderDimensionCharts(allRows, ghostRowsOpt) {
         var grid = $("dimension-charts-grid");
         if (!grid) return;
         destroyDimensionCharts();
@@ -349,6 +934,11 @@
         var scope = getDimScope();
         var challengeFilter = getDimChallengeFilter();
         var built = buildDimensionUnits(rows, scope, challengeFilter);
+        var builtGhost =
+            ghostRowsOpt && ghostRowsOpt.length && scope === "kinetic" && viewScope.showPopulation
+                ? buildDimensionUnits(ghostRowsOpt, scope, challengeFilter)
+                : null;
+        var gKin = builtGhost && builtGhost.kind === "kinetic" && builtGhost.points ? builtGhost.points : null;
         var caption = $("dim-strip-caption");
         var isKinetic = built.kind === "kinetic";
         var units = !isKinetic ? built.units : null;
@@ -380,7 +970,11 @@
                     chLabel +
                     " · " +
                     kinPts.length +
-                    " row(s). Same color = same FullStory session; x = row index with slight jitter.";
+                    " row(s)" +
+                    (gKin && gKin.length
+                        ? "; faded gray = population outside focus (" + gKin.length + ")"
+                        : "") +
+                    ". Same color = same FullStory session; x = row index with slight jitter.";
             } else {
                 var scopeLabel = scope === "user" ? "Visitor means" : "Session means";
                 caption.textContent =
@@ -404,6 +998,14 @@
                     sessionOrder.push(p.sid);
                 }
             });
+            if (gKin && gKin.length) {
+                gKin.forEach(function (p) {
+                    if (!seenSid[p.sid]) {
+                        seenSid[p.sid] = true;
+                        sessionOrder.push(p.sid);
+                    }
+                });
+            }
             var colorOfSid = {};
             sessionOrder.forEach(function (sid, idx) {
                 colorOfSid[sid] = CLUSTER_COLORS[idx % CLUSTER_COLORS.length];
@@ -412,15 +1014,38 @@
             var dKin;
             for (dKin = 0; dKin < 16; dKin++) {
                 (function (dim) {
+                    var offset = gKin && gKin.length ? gKin.length : 0;
+                    var metaG =
+                        gKin && gKin.length
+                            ? gKin.map(function (p) {
+                                  return {
+                                      sid: p.sid,
+                                      label: p.row && p.row.label ? String(p.row.label) : "",
+                                      ghost: true,
+                                  };
+                              })
+                            : [];
                     var meta = kinPts.map(function (p) {
                         return {
                             sid: p.sid,
                             label: p.row && p.row.label ? String(p.row.label) : "",
+                            ghost: false,
                         };
                     });
+                    var scatterGhost =
+                        gKin && gKin.length
+                            ? gKin.map(function (p, idx) {
+                                  var j = hashSidForJitter(String(p.sid) + ":g:" + idx) % 1999;
+                                  var x = idx + j / 25000;
+                                  return {
+                                      x: x,
+                                      y: (p.fp[dim] !== undefined ? p.fp[dim] : 0) || 0,
+                                  };
+                              })
+                            : [];
                     var scatterData = kinPts.map(function (p, idx) {
                         var j = hashSidForJitter(String(p.sid) + ":" + idx) % 1999;
-                        var x = idx + j / 25000;
+                        var x = offset + idx + j / 25000;
                         return {
                             x: x,
                             y: (p.fp[dim] !== undefined ? p.fp[dim] : 0) || 0,
@@ -432,20 +1057,33 @@
                     var canvas = $("dim-chart-" + dim);
                     if (!canvas) return;
                     var ctx = canvas.getContext("2d");
+                    var dsList = [];
+                    if (scatterGhost.length) {
+                        dsList.push({
+                            label: "population",
+                            data: scatterGhost,
+                            pointBackgroundColor: scatterGhost.map(function () {
+                                return "rgba(148, 163, 184, 0.18)";
+                            }),
+                            pointBorderColor: "transparent",
+                            borderWidth: 0,
+                            pointRadius: 3,
+                            pointHoverRadius: 3,
+                        });
+                    }
+                    dsList.push({
+                        label: "rows",
+                        data: scatterData,
+                        pointBackgroundColor: colors,
+                        pointBorderColor: "rgba(255,255,255,0.2)",
+                        borderWidth: 1,
+                        pointRadius: 4,
+                        pointHoverRadius: 6,
+                    });
                     var chart = new Chart(ctx, {
                         type: "scatter",
                         data: {
-                            datasets: [
-                                {
-                                    label: "rows",
-                                    data: scatterData,
-                                    pointBackgroundColor: colors,
-                                    pointBorderColor: "rgba(255,255,255,0.2)",
-                                    borderWidth: 1,
-                                    pointRadius: 4,
-                                    pointHoverRadius: 6,
-                                },
-                            ],
+                            datasets: dsList,
                         },
                         options: {
                             responsive: true,
@@ -454,8 +1092,15 @@
                             layout: { padding: { left: 4, right: 8, top: 4, bottom: 4 } },
                             onClick: function (_evt, elements) {
                                 if (!elements.length) return;
-                                var idx = elements[0].index;
-                                var m = meta[idx];
+                                var el = elements[0];
+                                if (scatterGhost.length && el.datasetIndex === 0) return;
+                                var idx = el.index;
+                                var m =
+                                    scatterGhost.length && el.datasetIndex === 1
+                                        ? meta[idx]
+                                        : !scatterGhost.length
+                                          ? meta[idx]
+                                          : meta[idx];
                                 if (m && m.sid) {
                                     selectUser(m.sid);
                                 }
@@ -463,10 +1108,16 @@
                             plugins: {
                                 legend: { display: false },
                                 tooltip: {
+                                    filter: function (item) {
+                                        return !(scatterGhost.length && item.datasetIndex === 0);
+                                    },
                                     callbacks: {
                                         label: function (ctx) {
                                             var i = ctx.dataIndex;
-                                            var m = meta[i];
+                                            var m =
+                                                scatterGhost.length && ctx.datasetIndex === 0
+                                                    ? metaG[i]
+                                                    : meta[i];
                                             var yv =
                                                 ctx.parsed.y !== undefined ? ctx.parsed.y : ctx.raw;
                                             var lines = [
@@ -881,6 +1532,7 @@
         if (!datasets || !datasets.length) return;
         datasets.forEach(function (ds) {
             var idx = typeof ds.clusterSlotIndex === "number" ? ds.clusterSlotIndex : 0;
+            if (idx < 0) return;
             var cl = lastClusterResult.clusters[idx] || [];
             var proto = dominantProtoLabel(cl);
             var s = document.createElement("span");
@@ -913,18 +1565,29 @@
             host.innerHTML = "";
             return;
         }
-        var items = lastKineticPoints.map(function (p) {
+        var scoped = getScopedKineticPoints();
+        var items = [];
+        scoped.ghost.forEach(function (p) {
+            items.push({
+                vector: p.fp,
+                color: "rgba(148, 163, 184, 0.35)",
+                opacity: 0.1,
+                sid: p.sid,
+                userKey: p.userKey || null,
+            });
+        });
+        scoped.focused.forEach(function (p) {
             var col =
                 p.prototypeMatch && p.prototypeMatch.color
                     ? p.prototypeMatch.color
                     : CLUSTER_COLORS[p.clusterIndex % CLUSTER_COLORS.length] || "#6366f1";
-            return {
+            items.push({
                 vector: p.fp,
                 color: col,
                 opacity: 0.42,
                 sid: p.sid,
                 userKey: p.userKey || null,
-            };
+            });
         });
         NexusFingerprintViz.renderParallelCoords(host, items, {
             highlightSid: selectedSid,
@@ -932,12 +1595,13 @@
         });
     }
 
-    function renderCloud(clusterResult, axisTitles, emptyHint) {
+    function renderCloud(clusterResult, axisTitles, emptyHint, ghostPoints) {
         axisTitles = axisTitles || { x: "PC1", y: "PC2" };
         var ctx = $("cloudChart").getContext("2d");
         var clusters = clusterResult.clusters;
+        var ghostArr = ghostPoints && ghostPoints.length ? ghostPoints : [];
 
-        var datasets = clusters
+        var clusterDatasets = clusters
             .map(function (cluster, i) {
                 var baseCol = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
                 var ptBg = cluster.map(function (p) {
@@ -959,6 +1623,26 @@
             .filter(function (ds) {
                 return ds.data.length > 0;
             });
+
+        var datasets = [];
+        if (ghostArr.length) {
+            var gBg = ghostArr.map(function () {
+                return "rgba(148, 163, 184, 0.22)";
+            });
+            datasets.push({
+                label: "Population",
+                clusterSlotIndex: -1,
+                data: ghostArr,
+                backgroundColor: "rgba(148, 163, 184, 0.12)",
+                pointBackgroundColor: gBg,
+                pointRadius: 4,
+                hoverRadius: 4,
+                pointHoverBackgroundColor: gBg,
+            });
+        }
+        clusterDatasets.forEach(function (ds) {
+            datasets.push(ds);
+        });
 
         if (cloudChart) cloudChart.destroy();
 
@@ -1011,6 +1695,7 @@
                     if (!elements.length) return;
                     var el = elements[0];
                     var ds = datasets[el.datasetIndex];
+                    if (!ds || ds.clusterSlotIndex === -1) return;
                     var pt = ds.data[el.index];
                     if (!pt || !pt.original) return;
                     var teleportRow = pt.original;
@@ -1045,6 +1730,10 @@
                 plugins: {
                     legend: { display: false },
                     tooltip: {
+                        filter: function (item) {
+                            var ds0 = item.chart.data.datasets[item.datasetIndex];
+                            return !ds0 || ds0.clusterSlotIndex !== -1;
+                        },
                         callbacks: {
                             label: function (ctx) {
                                 var raw = ctx.raw;
@@ -1116,7 +1805,7 @@
             " warehouse row(s) for this visitor across sessions (module filter applies to the chart only).";
 
         if (radarCtrl && radarCtrl.update) radarCtrl.update(merged);
-        renderParallelPanel();
+        setViewScope({ mode: "user", visitorKey: uk, showPopulation: viewScope.showPopulation });
         updateFullStoryMomentUI(
             teleportRowOpt !== undefined ? teleportRowOpt : pickLatestKineticWarehouseRow(merged)
         );
@@ -1151,7 +1840,7 @@
             (labels.length > 4 ? "…" : "");
 
         if (radarCtrl && radarCtrl.update) radarCtrl.update(userEvents);
-        renderParallelPanel();
+        setViewScope({ mode: "session", sid: sid, showPopulation: viewScope.showPopulation });
         updateFullStoryMomentUI(
             teleportRowOpt !== undefined ? teleportRowOpt : pickLatestKineticWarehouseRow(userEvents)
         );
@@ -1222,6 +1911,119 @@
     function appendQueryToUrl(baseUrl, extraQs) {
         if (!extraQs) return baseUrl;
         return baseUrl + (baseUrl.indexOf("?") >= 0 ? "" : "?") + extraQs.replace(/^&/, "");
+    }
+
+    function collectorOriginForFullstory() {
+        var root = API_BASE.replace(/\/?$/, "");
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            try {
+                root = new URL(DIRECT_SUMMARY_URL).origin;
+            } catch (_e) {}
+        }
+        return root;
+    }
+
+    function fullstoryAuthHeaders() {
+        var h = {};
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            var tok =
+                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
+                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
+                    : "";
+            if (tok) h.Authorization = "Bearer " + tok;
+        } else {
+            var pk =
+                typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+                    ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+                    : "";
+            if (pk) h.Authorization = "Bearer " + pk;
+        }
+        return h;
+    }
+
+    /**
+     * Load session-level FullStory rollups for every session that has kinetic points (batched).
+     */
+    async function fetchFsSessionMetricsMap() {
+        fsSessionMetricsBySid = {};
+        if (!lastKineticPoints || !lastKineticPoints.length) return;
+        var auth = fullstoryAuthHeaders();
+        if (!auth.Authorization) return;
+        var internal = DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1;
+        if (internal && !getMasterOrgSlugForSave()) return;
+        var seen = {};
+        var i;
+        for (i = 0; i < lastKineticPoints.length; i++) {
+            var s = lastKineticPoints[i].sid != null ? String(lastKineticPoints[i].sid) : "";
+            if (s) seen[s] = true;
+        }
+        var ids = Object.keys(seen);
+        if (!ids.length) return;
+        var origin = collectorOriginForFullstory();
+        var chunkSize = 80;
+        for (i = 0; i < ids.length; i += chunkSize) {
+            var chunk = ids.slice(i, i + chunkSize);
+            var q = "session_ids=" + encodeURIComponent(chunk.join(","));
+            var path = internal
+                ? "/internal/v1/fullstory/sessions?" +
+                  q +
+                  "&org_slug=" +
+                  encodeURIComponent(getMasterOrgSlugForSave() || "")
+                : "/v1/fullstory/sessions?" + q;
+            try {
+                var res = await fetch(origin + path, { headers: auth });
+                if (!res.ok) continue;
+                var rows = await res.json();
+                if (!Array.isArray(rows)) continue;
+                var r;
+                for (r = 0; r < rows.length; r++) {
+                    var row = rows[r];
+                    if (row && row.fs_session_id != null) {
+                        fsSessionMetricsBySid[String(row.fs_session_id)] = row;
+                    }
+                }
+            } catch (e) {
+                console.warn("fetchFsSessionMetricsMap:", e);
+            }
+        }
+    }
+
+    /** Populate lastFsEvents for the current viewScope (session or visitor); does not render. */
+    async function fetchFsEventsForScope() {
+        lastFsEvents = [];
+        if (viewScope.mode === "all") return;
+        var auth = fullstoryAuthHeaders();
+        if (!auth.Authorization) return;
+        var internal = DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1;
+        if (internal && !getMasterOrgSlugForSave()) return;
+        var parts = [];
+        if (viewScope.mode === "session" && viewScope.sid) {
+            parts.push("session_id=" + encodeURIComponent(String(viewScope.sid)));
+        } else if (viewScope.mode === "user" && viewScope.visitorKey) {
+            parts.push("visitor_key=" + encodeURIComponent(String(viewScope.visitorKey)));
+        } else {
+            return;
+        }
+        parts.push("limit=5000");
+        var qs = parts.join("&");
+        var origin = collectorOriginForFullstory();
+        var path = internal
+            ? "/internal/v1/fullstory/events?" + qs + "&org_slug=" + encodeURIComponent(getMasterOrgSlugForSave() || "")
+            : "/v1/fullstory/events?" + qs;
+        try {
+            var res = await fetch(origin + path, { headers: auth });
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            var data = await res.json();
+            lastFsEvents = Array.isArray(data) ? data : [];
+        } catch (e) {
+            console.warn("fetchFsEventsForScope:", e);
+            lastFsEvents = [];
+        }
+    }
+
+    async function refreshScopedChartsAfterFs() {
+        await fetchFsEventsForScope();
+        refreshScopedCharts();
     }
 
     async function fetchBehaviorPrototypesList() {
@@ -1443,6 +2245,7 @@
         NexusClusterPrototypes.enrichPoints(lastKineticPoints, behaviorPrototypes, {
             moduleFilter: mf,
             k: getDesiredClusterCount(),
+            sessionMetricsBySid: fsSessionMetricsBySid,
         });
     }
 
@@ -1470,7 +2273,12 @@
     function renderPersonaStrip() {
         var host = $("dash-persona-strip");
         if (!host || !NexusBehaviorSummary) return;
-        var cards = NexusBehaviorSummary.buildPersonaCards(behaviorPrototypes, lastKineticPoints);
+        var pts = getScopedKineticPoints().focused;
+        var cards = NexusBehaviorSummary.buildPersonaCards(
+            behaviorPrototypes,
+            pts,
+            fsSessionMetricsBySid
+        );
         host.innerHTML = "";
         cards.forEach(function (c) {
             var card = document.createElement("div");
@@ -1492,15 +2300,45 @@
             if (c.tags && c.tags.length) {
                 var tg = document.createElement("div");
                 tg.className = "dash-persona-card__tags";
-                tg.textContent = c.tags.join(", ");
+                c.tags.forEach(function (tag) {
+                    var sp = document.createElement("span");
+                    sp.className = "dash-persona-card__tag";
+                    if (tag && tag.kind === "fs_signal") {
+                        sp.className += " dash-persona-card__tag--fs-signal";
+                    }
+                    sp.textContent = tag && tag.text != null ? tag.text : String(tag);
+                    tg.appendChild(sp);
+                });
                 card.appendChild(tg);
+            }
+            if (c.fs && c.fs.sessions_with_fs) {
+                var fsEl = document.createElement("div");
+                fsEl.className = "dash-persona-card__fs";
+                var bits = [];
+                if (c.fs.frustrated_pct_avg != null) {
+                    bits.push("frust ~" + Math.round(c.fs.frustrated_pct_avg * 100) + "%");
+                }
+                if (c.fs.dead_pct_avg != null) {
+                    bits.push("dead ~" + Math.round(c.fs.dead_pct_avg * 100) + "%");
+                }
+                if (c.fs.error_pct_avg != null) {
+                    bits.push("err ~" + Math.round(c.fs.error_pct_avg * 100) + "%");
+                }
+                if (c.fs.clicks_per_min_avg != null) {
+                    bits.push("~ " + c.fs.clicks_per_min_avg.toFixed(1) + " clk/min");
+                }
+                if (c.fs.max_scroll_depth_avg != null) {
+                    bits.push("scroll ~" + Math.round(c.fs.max_scroll_depth_avg) + "%");
+                }
+                fsEl.textContent = bits.length ? "FullStory · " + bits.join(" · ") : "";
+                if (fsEl.textContent) card.appendChild(fsEl);
             }
             host.appendChild(card);
         });
 
         var hmHost = $("dash-tag-heatmap");
         if (hmHost && NexusBehaviorSummary.buildTagHeatmap) {
-            var rows = NexusBehaviorSummary.buildTagHeatmap(behaviorPrototypes, lastKineticPoints);
+            var rows = NexusBehaviorSummary.buildTagHeatmap(behaviorPrototypes, pts);
             hmHost.innerHTML =
                 "<table class='dash-mini-table'><thead><tr><th>Prototype</th><th>Tag</th><th>n</th></tr></thead><tbody>" +
                 rows
@@ -1705,7 +2543,12 @@
             if (!r.ok) throw new Error("HTTP " + r.status);
             var data = await r.json();
             var arr = Array.isArray(data) ? data : [];
-            processWarehouseRows(arr);
+            pendingReverseFocus =
+                mode === "visitor"
+                    ? { type: "user", key: q.visitorKey.trim() }
+                    : { type: "session" };
+            datasetFromReverseSearch = true;
+            await processWarehouseRows(arr);
             setStatus(true, "Reverse search · " + arr.length + " row(s)");
         } catch (e) {
             console.error(e);
@@ -1713,24 +2556,99 @@
         }
     }
 
-    function processWarehouseRows(data) {
+    async function uploadFullstoryCsv(file) {
+        if (!file) return;
+        var auth = fullstoryAuthHeaders();
+        if (!auth.Authorization) {
+            alert("Set publishable key (NEXUS_PUBLISHABLE_KEY) or master token for CSV upload.");
+            return;
+        }
+        var internal = DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1;
+        if (internal && !getMasterOrgSlugForSave()) {
+            alert("Select an organization for FullStory ingest (master dashboard).");
+            return;
+        }
+        var st = $("fs-upload-status");
+        if (st) st.textContent = "Uploading…";
+        var text;
+        try {
+            text = await file.text();
+        } catch (_e) {
+            if (st) st.textContent = "Could not read file.";
+            return;
+        }
+        var origin = collectorOriginForFullstory();
+        var path = internal
+            ? "/internal/v1/fullstory/events/upload-csv?org_slug=" +
+              encodeURIComponent(getMasterOrgSlugForSave() || "")
+            : "/v1/fullstory/events/upload-csv";
+        try {
+            var res = await fetch(origin + path, {
+                method: "POST",
+                headers: Object.assign({ "Content-Type": "text/csv" }, auth),
+                body: text,
+            });
+            if (!res.ok) throw new Error((await res.text()) || "HTTP " + res.status);
+            var j = await res.json();
+            if (st) {
+                st.textContent =
+                    (j.inserted != null ? j.inserted : 0) +
+                    " events ingested across " +
+                    (j.sessions && j.sessions.length != null ? j.sessions.length : 0) +
+                    " session(s) · dedup skipped " +
+                    (j.skipped != null ? j.skipped : 0) +
+                    (j.truncated ? " · truncated at 50k rows" : "");
+            }
+            var auto = $("fs-upload-autofocus") && $("fs-upload-autofocus").checked;
+            await fetchData();
+            if (auto && j.sessions && j.sessions[0]) {
+                var sid0 = j.sessions[0];
+                if (globalSessions[sid0]) {
+                    selectUser(sid0);
+                } else {
+                    setViewScope({ mode: "session", sid: sid0, showPopulation: viewScope.showPopulation });
+                }
+            }
+        } catch (e) {
+            console.error(e);
+            if (st) st.textContent = "Upload failed.";
+            alert("FullStory CSV upload failed: " + (e && e.message ? e.message : e));
+        }
+    }
+
+    async function processWarehouseRows(data) {
         if (!data || !data.length) {
             globalSessions = {};
             globalCentroids = [];
             lastKineticPoints = [];
             lastWarehouseRows = [];
+            lastClusterResult = { clusters: [], centroids: [] };
+            viewScope = { mode: "all", sid: null, visitorKey: null, showPopulation: false };
+            fsSessionMetricsBySid = {};
+            lastFsEvents = [];
+            datasetFromReverseSearch = false;
+            pendingReverseFocus = null;
             $("stat-kinetic").textContent = "0";
             $("stat-clusters").textContent = "0";
             $("stat-sessions").textContent = "0";
             $("stat-integrity").textContent = "—";
             clearFullStoryMomentUI();
-            renderSessionList();
-            renderCloud({ clusters: [] }, { x: "PC1", y: "PC2" }, null);
-            renderParallelPanel();
-            renderDimensionCharts([]);
             var capEmpty = $("pca-caption");
-            if (capEmpty) capEmpty.textContent = "";
-            renderPersonaStrip();
+            if (capEmpty) {
+                capEmpty.textContent = "";
+                capEmpty.removeAttribute("data-base-caption");
+            }
+            lastAxisTitles = { x: "PC1", y: "PC2" };
+            lastPcaEmptyHint = null;
+            if (prototypeTimelineChart) {
+                try {
+                    prototypeTimelineChart.destroy();
+                } catch (_e) {}
+                prototypeTimelineChart = null;
+            }
+            renderSessionList();
+            syncScopeToolbar();
+            refreshScopedCharts();
             populatePrototypeOrgSelect([]);
             setStatus(true, "Warehouse reachable · empty");
             return;
@@ -1772,6 +2690,10 @@
             }
         }
 
+        if (capEl) capEl.setAttribute("data-base-caption", capEl.textContent || "");
+        lastAxisTitles = axisTitles;
+        lastPcaEmptyHint = lastKineticPoints.length ? null : built.emptyHint;
+
         var maxK = getDesiredClusterCount();
         syncClusterKUi();
         var km =
@@ -1780,6 +2702,7 @@
                 : performKMeans(lastKineticPoints, Math.min(maxK, lastKineticPoints.length));
         globalCentroids = km.centroids;
         lastClusterResult = km;
+        await fetchFsSessionMetricsMap();
         enrichKineticPrototypes();
 
         var nonempty = km.clusters.filter(function (c) {
@@ -1788,19 +2711,21 @@
         $("stat-clusters").textContent = String(nonempty);
 
         renderSessionList();
-        renderCloud(km, axisTitles, lastKineticPoints.length ? null : built.emptyHint);
-        renderParallelPanel();
 
-        var gran = getGranularityMode();
-        if (
-            gran === "user" &&
-            selectedUserKey &&
-            collectRowsForVisitorKey(selectedUserKey).length
-        ) {
-            selectUserByVisitorKey(selectedUserKey);
-        } else if (selectedSid && globalSessions[selectedSid] && sessionVisibleForModule(selectedSid, mf)) {
-            selectUser(selectedSid);
-        } else {
+        function applyDefaultSessionSelection() {
+            var gran = getGranularityMode();
+            if (
+                gran === "user" &&
+                selectedUserKey &&
+                collectRowsForVisitorKey(selectedUserKey).length
+            ) {
+                selectUserByVisitorKey(selectedUserKey);
+                return;
+            }
+            if (selectedSid && globalSessions[selectedSid] && sessionVisibleForModule(selectedSid, mf)) {
+                selectUser(selectedSid);
+                return;
+            }
             selectedUserKey = null;
             var sorted = Object.keys(globalSessions).filter(function (sid) {
                 return sessionVisibleForModule(sid, mf);
@@ -1814,14 +2739,30 @@
             var first = sorted[0];
             if (first && lastKineticPoints.length) {
                 selectUser(first);
-            } else {
-                clearFullStoryMomentUI();
+                return;
             }
+            selectedSid = null;
+            viewScope = { mode: "all", sid: null, visitorKey: null, showPopulation: false };
+            syncScopeToolbar();
+            clearFullStoryMomentUI();
+            refreshScopedCharts();
         }
 
-        renderDimensionCharts(data);
+        if (pendingReverseFocus) {
+            var pr = pendingReverseFocus;
+            pendingReverseFocus = null;
+            if (pr.type === "user" && pr.key) {
+                selectUserByVisitorKey(pr.key);
+            } else if (pr.type === "session" && lastWarehouseRows.length) {
+                var sid0 = M ? M.getSessionKey(lastWarehouseRows[0]) : fallbackSessionKey(lastWarehouseRows[0]);
+                selectUser(sid0);
+            } else {
+                applyDefaultSessionSelection();
+            }
+        } else {
+            applyDefaultSessionSelection();
+        }
 
-        renderPersonaStrip();
         populatePrototypeOrgSelect(data);
 
         setStatus(
@@ -1859,10 +2800,15 @@
 
     async function fetchData() {
         try {
+            pendingReverseFocus = null;
+            datasetFromReverseSearch = false;
+            viewScope = { mode: "all", sid: null, visitorKey: null, showPopulation: false };
+            var popEl = $("scope-show-population");
+            if (popEl) popEl.checked = false;
             await fetchBehaviorPrototypesList();
             var data = await fetchSummaryPayload();
             if (data === null) return;
-            processWarehouseRows(Array.isArray(data) ? data : []);
+            await processWarehouseRows(Array.isArray(data) ? data : []);
         } catch (err) {
             console.error("Dashboard fetch error:", err);
             clearFullStoryMomentUI();
@@ -2109,7 +3055,7 @@
             }
             dimScopeEl.addEventListener("change", function () {
                 localStorage.setItem(LS_DIM_SCOPE_KEY, dimScopeEl.value);
-                renderDimensionCharts(lastWarehouseRows);
+                refreshScopedCharts();
             });
         }
 
@@ -2117,9 +3063,22 @@
         if (dimChallengeEl) {
             dimChallengeEl.addEventListener("change", function () {
                 localStorage.setItem(LS_DIM_CHALLENGE_KEY, dimChallengeEl.value);
-                renderDimensionCharts(lastWarehouseRows);
+                refreshScopedCharts();
             });
         }
+
+        var scopePop = $("scope-show-population");
+        if (scopePop) {
+            scopePop.addEventListener("change", function () {
+                viewScope.showPopulation = scopePop.checked;
+                syncScopeToolbar();
+                refreshScopedCharts();
+            });
+        }
+        var btnScopeClear = $("btn-scope-clear");
+        if (btnScopeClear) btnScopeClear.onclick = clearViewScopeFromUi;
+        var btnScopeExpand = $("btn-scope-expand-user");
+        if (btnScopeExpand) btnScopeExpand.onclick = expandSessionToUserFromUi;
 
         var orgRow = $("dash-prototype-org-row");
         if (orgRow) orgRow.hidden = !MASTER_ORG_SCOPE;
@@ -2162,6 +3121,44 @@
             };
         var brv = $("btn-dash-reverse-search");
         if (brv) brv.onclick = runReverseSearch;
+        var fsInput = $("fs-csv-input");
+        var fsDrop = $("fs-upload-dropzone");
+        if (fsInput) {
+            fsInput.addEventListener("change", function () {
+                var f = fsInput.files && fsInput.files[0];
+                if (f) void uploadFullstoryCsv(f);
+                fsInput.value = "";
+            });
+        }
+        if (fsDrop && fsInput) {
+            ["dragenter", "dragover"].forEach(function (evName) {
+                fsDrop.addEventListener(evName, function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    fsDrop.classList.add("fs-upload-dropzone--hover");
+                });
+            });
+            ["dragleave", "drop"].forEach(function (evName) {
+                fsDrop.addEventListener(evName, function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    fsDrop.classList.remove("fs-upload-dropzone--hover");
+                });
+            });
+            fsDrop.addEventListener("drop", function (e) {
+                var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+                if (f) void uploadFullstoryCsv(f);
+            });
+            fsDrop.addEventListener("click", function () {
+                fsInput.click();
+            });
+            fsDrop.addEventListener("keydown", function (e) {
+                if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    fsInput.click();
+                }
+            });
+        }
         var bsv = $("btn-dash-save-prototype");
         if (bsv) bsv.onclick = saveClusterPrototypeFromUi;
         var bsnap = $("btn-dash-snapshot-cohort");
@@ -2223,6 +3220,11 @@
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(function () {
                 renderParallelPanel();
+                if (prototypeTimelineChart) {
+                    try {
+                        prototypeTimelineChart.resize();
+                    } catch (_e) {}
+                }
                 dimensionCharts.forEach(function (ch) {
                     try {
                         ch.resize();

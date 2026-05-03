@@ -112,7 +112,7 @@ async function ensureSchema(client) {
         CREATE TABLE IF NOT EXISTS behavior_cluster_tags (
             id UUID PRIMARY KEY,
             cluster_id UUID NOT NULL REFERENCES behavior_clusters (id) ON DELETE CASCADE,
-            tag_kind TEXT NOT NULL CHECK (tag_kind IN ('label_pattern', 'module', 'metric', 'note')),
+            tag_kind TEXT NOT NULL CHECK (tag_kind IN ('label_pattern', 'module', 'metric', 'note', 'fs_signal')),
             value TEXT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         );
@@ -151,6 +151,95 @@ async function ensureSchema(client) {
         CREATE INDEX IF NOT EXISTS idx_segmentation_assignments_org_visitor
         ON segmentation_assignments (org_id, visitor_key);
     `);
+
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS fullstory_events (
+            id UUID PRIMARY KEY,
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            fs_session_id TEXT NOT NULL,
+            fs_user_id TEXT,
+            fs_indv_id TEXT,
+            fs_page_id TEXT,
+            event_type TEXT,
+            event_sub_type TEXT,
+            event_custom_name TEXT,
+            event_target_text TEXT,
+            event_target_selector TEXT,
+            event_session_offset_ms INT,
+            event_page_offset_ms INT,
+            mod_frustrated BOOLEAN DEFAULT false,
+            mod_dead BOOLEAN DEFAULT false,
+            mod_error BOOLEAN DEFAULT false,
+            mod_suspicious BOOLEAN DEFAULT false,
+            page_url TEXT,
+            page_device TEXT,
+            page_browser TEXT,
+            page_platform TEXT,
+            page_max_scroll_depth_pct DOUBLE PRECISION,
+            event_start TIMESTAMPTZ NOT NULL,
+            session_start TIMESTAMPTZ,
+            payload JSONB NOT NULL,
+            ingest_hash TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (org_id, ingest_hash)
+        );
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_fs_events_org_session ON fullstory_events (org_id, fs_session_id, event_start);
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_fs_events_org_user ON fullstory_events (org_id, fs_user_id, event_start);
+    `);
+
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS fullstory_session_metrics (
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            fs_session_id TEXT NOT NULL,
+            fs_user_id TEXT,
+            first_event_at TIMESTAMPTZ NOT NULL,
+            last_event_at TIMESTAMPTZ NOT NULL,
+            duration_ms BIGINT,
+            event_count INT,
+            click_count INT,
+            navigate_count INT,
+            pageview_count INT,
+            frustrated_count INT,
+            dead_count INT,
+            error_count INT,
+            suspicious_count INT,
+            max_scroll_depth_pct DOUBLE PRECISION,
+            unique_urls INT,
+            top_url TEXT,
+            device TEXT,
+            browser TEXT,
+            metrics JSONB NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            PRIMARY KEY (org_id, fs_session_id)
+        );
+    `);
+
+    /** Relax tag_kind CHECK to allow fs_signal (existing deployments). */
+    await client.query(`
+        DO $$
+        DECLARE r RECORD;
+        BEGIN
+            FOR r IN (
+                SELECT conname FROM pg_constraint
+                WHERE conrelid = 'behavior_cluster_tags'::regclass
+                  AND contype = 'c'
+                  AND pg_get_constraintdef(oid) LIKE '%tag_kind%'
+            ) LOOP
+                EXECUTE format('ALTER TABLE behavior_cluster_tags DROP CONSTRAINT IF EXISTS %I', r.conname);
+            END LOOP;
+        END $$;
+    `);
+    await client.query(`
+        ALTER TABLE behavior_cluster_tags DROP CONSTRAINT IF EXISTS behavior_cluster_tags_tag_kind_check;
+    `).catch(() => {});
+    await client.query(`
+        ALTER TABLE behavior_cluster_tags ADD CONSTRAINT behavior_cluster_tags_tag_kind_check
+        CHECK (tag_kind IN ('label_pattern', 'module', 'metric', 'note', 'fs_signal'));
+    `).catch(() => {});
 }
 
 /** Normalize email for console allowlist (lowercase, trim). */
@@ -680,7 +769,7 @@ async function addBehaviorClusterTag(pool, orgIdUuid, clusterId, tagKind, value)
         [clusterId, orgIdUuid]
     );
     if (!chk.rows.length) return null;
-    const kind = ['label_pattern', 'module', 'metric', 'note'].includes(tagKind)
+    const kind = ['label_pattern', 'module', 'metric', 'note', 'fs_signal'].includes(tagKind)
         ? tagKind
         : 'note';
     const id = crypto.randomUUID();
@@ -916,6 +1005,410 @@ async function searchBehaviorEventsAllOrgs(pool, opts) {
         .reverse();
 }
 
+/**
+ * @typedef {{
+ *   fs_session_id: string,
+ *   fs_user_id: string | null,
+ *   fs_indv_id: string | null,
+ *   fs_page_id: string | null,
+ *   event_type: string | null,
+ *   event_sub_type: string | null,
+ *   event_custom_name: string | null,
+ *   event_target_text: string | null,
+ *   event_target_selector: string | null,
+ *   event_session_offset_ms: number | null,
+ *   event_page_offset_ms: number | null,
+ *   mod_frustrated: boolean,
+ *   mod_dead: boolean,
+ *   mod_error: boolean,
+ *   mod_suspicious: boolean,
+ *   page_url: string | null,
+ *   page_device: string | null,
+ *   page_browser: string | null,
+ *   page_platform: string | null,
+ *   page_max_scroll_depth_pct: number | null,
+ *   event_start: Date | string,
+ *   session_start: Date | string | null,
+ *   payload: object,
+ *   ingest_hash: string,
+ * }} FsInsertRow
+ */
+
+/**
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ * @param {FsInsertRow[]} rows
+ * @returns {Promise<{ inserted: number, skipped: number, sessionIds: string[] }>}
+ */
+async function insertFullstoryEventsBatch(pool, orgIdUuid, rows) {
+    if (!rows || !rows.length) return { inserted: 0, skipped: 0, sessionIds: [] };
+    let inserted = 0;
+    let skipped = 0;
+    const sessions = new Set();
+    let i;
+    for (i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const id = crypto.randomUUID();
+        try {
+            const ins = await pool.query(
+                `INSERT INTO fullstory_events (
+                  id, org_id, fs_session_id, fs_user_id, fs_indv_id, fs_page_id,
+                  event_type, event_sub_type, event_custom_name, event_target_text, event_target_selector,
+                  event_session_offset_ms, event_page_offset_ms,
+                  mod_frustrated, mod_dead, mod_error, mod_suspicious,
+                  page_url, page_device, page_browser, page_platform, page_max_scroll_depth_pct,
+                  event_start, session_start, payload, ingest_hash
+                ) VALUES (
+                  $1, $2, $3, $4, $5, $6,
+                  $7, $8, $9, $10, $11,
+                  $12, $13,
+                  $14, $15, $16, $17,
+                  $18, $19, $20, $21, $22,
+                  $23::timestamptz, $24::timestamptz, $25::jsonb, $26
+                )
+                ON CONFLICT (org_id, ingest_hash) DO NOTHING
+                RETURNING id, fs_session_id`,
+                [
+                    id,
+                    orgIdUuid,
+                    r.fs_session_id,
+                    r.fs_user_id,
+                    r.fs_indv_id,
+                    r.fs_page_id,
+                    r.event_type,
+                    r.event_sub_type,
+                    r.event_custom_name,
+                    r.event_target_text,
+                    r.event_target_selector,
+                    r.event_session_offset_ms,
+                    r.event_page_offset_ms,
+                    r.mod_frustrated,
+                    r.mod_dead,
+                    r.mod_error,
+                    r.mod_suspicious,
+                    r.page_url,
+                    r.page_device,
+                    r.page_browser,
+                    r.page_platform,
+                    r.page_max_scroll_depth_pct,
+                    r.event_start,
+                    r.session_start,
+                    JSON.stringify(r.payload || {}),
+                    r.ingest_hash,
+                ]
+            );
+            if (ins.rows.length) {
+                inserted++;
+                sessions.add(ins.rows[0].fs_session_id);
+            } else {
+                skipped++;
+            }
+        } catch (e) {
+            skipped++;
+            console.warn('insertFullstoryEventsBatch row skip:', e.message || e);
+        }
+    }
+    return { inserted, skipped, sessionIds: [...sessions] };
+}
+
+/**
+ * Recompute aggregates for given FS session ids (delete + insert).
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ * @param {string[]} sessionIds
+ */
+async function recomputeFsSessionMetrics(pool, orgIdUuid, sessionIds) {
+    const ids = (sessionIds || []).filter(Boolean);
+    if (!ids.length) return;
+    await pool.query(`DELETE FROM fullstory_session_metrics WHERE org_id = $1 AND fs_session_id = ANY($2::text[])`, [
+        orgIdUuid,
+        ids,
+    ]);
+    await pool.query(
+        `INSERT INTO fullstory_session_metrics (
+          org_id, fs_session_id, fs_user_id,
+          first_event_at, last_event_at, duration_ms,
+          event_count, click_count, navigate_count, pageview_count,
+          frustrated_count, dead_count, error_count, suspicious_count,
+          max_scroll_depth_pct, unique_urls, top_url, device, browser, metrics, updated_at
+        )
+        SELECT
+          fe.org_id,
+          fe.fs_session_id,
+          (SELECT MAX(fs_user_id) FROM fullstory_events x WHERE x.org_id = fe.org_id AND x.fs_session_id = fe.fs_session_id),
+          MIN(fe.event_start),
+          MAX(fe.event_start),
+          CAST(EXTRACT(EPOCH FROM (MAX(fe.event_start) - MIN(fe.event_start))) * 1000 AS BIGINT),
+          COUNT(*)::int,
+          SUM(CASE WHEN fe.event_type = 'click' THEN 1 ELSE 0 END)::int,
+          SUM(CASE WHEN fe.event_type = 'navigate' THEN 1 ELSE 0 END)::int,
+          SUM(CASE WHEN fe.event_type = 'pageview' THEN 1 ELSE 0 END)::int,
+          SUM(CASE WHEN fe.mod_frustrated THEN 1 ELSE 0 END)::int,
+          SUM(CASE WHEN fe.mod_dead THEN 1 ELSE 0 END)::int,
+          SUM(CASE WHEN fe.mod_error THEN 1 ELSE 0 END)::int,
+          SUM(CASE WHEN fe.mod_suspicious THEN 1 ELSE 0 END)::int,
+          MAX(fe.page_max_scroll_depth_pct),
+          COUNT(DISTINCT fe.page_url)::int,
+          (
+            SELECT fe2.page_url FROM fullstory_events fe2
+            WHERE fe2.org_id = fe.org_id AND fe2.fs_session_id = fe.fs_session_id AND fe2.page_url IS NOT NULL AND fe2.page_url <> ''
+            GROUP BY fe2.page_url
+            ORDER BY COUNT(*) DESC
+            LIMIT 1
+          ),
+          (SELECT MAX(page_device) FROM fullstory_events x WHERE x.org_id = fe.org_id AND x.fs_session_id = fe.fs_session_id),
+          (SELECT MAX(page_browser) FROM fullstory_events x WHERE x.org_id = fe.org_id AND x.fs_session_id = fe.fs_session_id),
+          jsonb_build_object(
+            'click_rate', CASE WHEN COUNT(*) > 0 THEN ROUND(SUM(CASE WHEN fe.event_type = 'click' THEN 1 ELSE 0 END)::numeric / COUNT(*), 4) ELSE 0 END,
+            'frustrated_rate', CASE WHEN COUNT(*) > 0 THEN ROUND(SUM(CASE WHEN fe.mod_frustrated THEN 1 ELSE 0 END)::numeric / COUNT(*), 4) ELSE 0 END
+          ),
+          now()
+        FROM fullstory_events fe
+        WHERE fe.org_id = $1 AND fe.fs_session_id = ANY($2::text[])
+        GROUP BY fe.org_id, fe.fs_session_id`,
+        [orgIdUuid, ids]
+    );
+}
+
+/**
+ * @returns {Promise<object[]>} — plain rows for API / dashboard
+ */
+async function listFullstoryEvents(pool, orgIdUuid, opts) {
+    const sessionId =
+        opts.session_id != null && String(opts.session_id).trim() !== ''
+            ? String(opts.session_id).trim()
+            : opts.fs_session_id != null
+              ? String(opts.fs_session_id).trim()
+              : null;
+    const sessionUrl =
+        opts.session_url != null && String(opts.session_url).trim() !== ''
+            ? String(opts.session_url).trim()
+            : null;
+    const sessionFromUrl = sessionUrl ? extractSessionIdFromFsUrlInternal(sessionUrl) : null;
+    const sid = sessionId || sessionFromUrl;
+    const visitorKey =
+        opts.visitor_key != null && String(opts.visitor_key).trim() !== ''
+            ? String(opts.visitor_key).trim()
+            : null;
+    const since = opts.since || null;
+    const until = opts.until || null;
+    const limit = Math.max(1, Math.min(5000, Number(opts.limit) || 1000));
+    if (!sid && !visitorKey) {
+        throw new Error('session_or_visitor_required');
+    }
+    const params = [orgIdUuid];
+    let p = 2;
+    let cond = 'fe.org_id = $1';
+    if (since) {
+        cond += ` AND fe.event_start >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND fe.event_start <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    if (sid && visitorKey) {
+        cond += ` AND (fe.fs_session_id = $${p} OR fe.fs_user_id = $${p + 1})`;
+        params.push(sid, visitorKey);
+        p += 2;
+    } else if (sid) {
+        cond += ` AND fe.fs_session_id = $${p}`;
+        params.push(sid);
+        p++;
+    } else {
+        cond += ` AND fe.fs_user_id = $${p}`;
+        params.push(visitorKey);
+        p++;
+    }
+    params.push(limit);
+    const { rows } = await pool.query(
+        `SELECT fe.payload FROM fullstory_events fe
+         WHERE ${cond}
+         ORDER BY fe.event_start ASC
+         LIMIT $${p}`,
+        params
+    );
+    return rows.map((r) => r.payload);
+}
+
+function extractSessionIdFromFsUrlInternal(url) {
+    if (!url || typeof url !== 'string') return null;
+    const s = url.trim();
+    if (!s) return null;
+    try {
+        const u = new URL(s);
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length) return parts[parts.length - 1];
+    } catch {
+        /* fall through */
+    }
+    const parts = s.split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : s;
+}
+
+async function listFullstoryEventsAllOrgs(pool, opts) {
+    const limit = Math.max(1, Math.min(5000, Number(opts.limit) || 1000));
+    const since = opts.since || null;
+    const until = opts.until || null;
+    const orgSlug = opts.org_slug ? String(opts.org_slug).trim().toLowerCase() : null;
+    const sessionId =
+        opts.session_id != null && String(opts.session_id).trim() !== ''
+            ? String(opts.session_id).trim()
+            : null;
+    const sessionUrl =
+        opts.session_url != null && String(opts.session_url).trim() !== ''
+            ? String(opts.session_url).trim()
+            : null;
+    const sid = sessionId || (sessionUrl ? extractSessionIdFromFsUrlInternal(sessionUrl) : null);
+    const visitorKey =
+        opts.visitor_key != null && String(opts.visitor_key).trim() !== ''
+            ? String(opts.visitor_key).trim()
+            : null;
+    if (!sid && !visitorKey) {
+        throw new Error('session_or_visitor_required');
+    }
+    const params = [];
+    let p = 1;
+    let cond = '1=1';
+    const join = 'FROM fullstory_events fe INNER JOIN organizations o ON o.id = fe.org_id';
+    if (orgSlug) {
+        cond += ` AND lower(o.slug) = $${p}`;
+        params.push(orgSlug);
+        p++;
+    }
+    if (since) {
+        cond += ` AND fe.event_start >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND fe.event_start <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    if (sid && visitorKey) {
+        cond += ` AND (fe.fs_session_id = $${p} OR fe.fs_user_id = $${p + 1})`;
+        params.push(sid, visitorKey);
+        p += 2;
+    } else if (sid) {
+        cond += ` AND fe.fs_session_id = $${p}`;
+        params.push(sid);
+        p++;
+    } else {
+        cond += ` AND fe.fs_user_id = $${p}`;
+        params.push(visitorKey);
+        p++;
+    }
+    params.push(limit);
+    const { rows } = await pool.query(
+        `SELECT fe.payload, o.id AS org_id, o.slug AS org_slug
+         ${join}
+         WHERE ${cond}
+         ORDER BY fe.event_start ASC
+         LIMIT $${p}`,
+        params
+    );
+    return rows.map((r) => {
+        const pl = r.payload && typeof r.payload === 'object' ? { ...r.payload } : {};
+        pl._master_org_id = r.org_id;
+        pl._master_org_slug = r.org_slug;
+        return pl;
+    });
+}
+
+async function listFullstorySessionMetrics(pool, orgIdUuid, opts) {
+    const since = opts.since || null;
+    const until = opts.until || null;
+    const params = [orgIdUuid];
+    let p = 2;
+    let cond = 'org_id = $1';
+    if (since) {
+        cond += ` AND last_event_at >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND first_event_at <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    const limit = Math.max(1, Math.min(5000, Number(opts.limit) || 2000));
+    params.push(limit);
+    const { rows } = await pool.query(
+        `SELECT fs_session_id, fs_user_id, first_event_at, last_event_at, duration_ms,
+                event_count, click_count, navigate_count, pageview_count,
+                frustrated_count, dead_count, error_count, suspicious_count,
+                max_scroll_depth_pct, unique_urls, top_url, device, browser, metrics
+         FROM fullstory_session_metrics
+         WHERE ${cond}
+         ORDER BY last_event_at DESC
+         LIMIT $${p}`,
+        params
+    );
+    return rows;
+}
+
+async function getFullstorySessionMetricsByIds(pool, orgIdUuid, sessionIds) {
+    const ids = (sessionIds || []).map((s) => String(s).trim()).filter(Boolean);
+    if (!ids.length) return [];
+    const { rows } = await pool.query(
+        `SELECT fs_session_id, fs_user_id, first_event_at, last_event_at, duration_ms,
+                event_count, click_count, navigate_count, pageview_count,
+                frustrated_count, dead_count, error_count, suspicious_count,
+                max_scroll_depth_pct, unique_urls, top_url, device, browser, metrics
+         FROM fullstory_session_metrics
+         WHERE org_id = $1 AND fs_session_id = ANY($2::text[])`,
+        [orgIdUuid, ids]
+    );
+    return rows;
+}
+
+async function listFullstorySessionMetricsAllOrgs(pool, opts) {
+    const since = opts.since || null;
+    const until = opts.until || null;
+    const orgSlug = opts.org_slug ? String(opts.org_slug).trim().toLowerCase() : null;
+    const params = [];
+    let p = 1;
+    let cond = '1=1';
+    const join = 'FROM fullstory_session_metrics m INNER JOIN organizations o ON o.id = m.org_id';
+    if (orgSlug) {
+        cond += ` AND lower(o.slug) = $${p}`;
+        params.push(orgSlug);
+        p++;
+    }
+    if (since) {
+        cond += ` AND m.last_event_at >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND m.first_event_at <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    const limit = Math.max(1, Math.min(5000, Number(opts.limit) || 2000));
+    params.push(limit);
+    const { rows } = await pool.query(
+        `SELECT m.fs_session_id, m.fs_user_id, m.first_event_at, m.last_event_at, m.duration_ms,
+                m.event_count, m.click_count, m.navigate_count, m.pageview_count,
+                m.frustrated_count, m.dead_count, m.error_count, m.suspicious_count,
+                m.max_scroll_depth_pct, m.unique_urls, m.top_url, m.device, m.browser, m.metrics,
+                o.slug AS org_slug
+         ${join}
+         WHERE ${cond}
+         ORDER BY m.last_event_at DESC
+         LIMIT $${p}`,
+        params
+    );
+    return rows.map((r) => ({
+        ...r,
+        fs_session_id: r.fs_session_id,
+        _master_org_slug: r.org_slug,
+    }));
+}
+
 module.exports = {
     KEY_PREFIX_LEN,
     hashPublishableKey,
@@ -955,4 +1448,11 @@ module.exports = {
     getSegmentationManifestForVisitor,
     searchBehaviorEvents,
     searchBehaviorEventsAllOrgs,
+    insertFullstoryEventsBatch,
+    recomputeFsSessionMetrics,
+    listFullstoryEvents,
+    listFullstoryEventsAllOrgs,
+    listFullstorySessionMetrics,
+    listFullstorySessionMetricsAllOrgs,
+    getFullstorySessionMetricsByIds,
 };

@@ -839,6 +839,54 @@ main > h1 {
     font-size: 0.75rem;
     color: var(--muted);
 }
+.dash-persona-card__tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.35rem;
+}
+.dash-persona-card__tag {
+    display: inline-block;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    background: rgba(148, 163, 184, 0.15);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    font-size: 0.72rem;
+}
+.dash-persona-card__tag--fs-signal {
+    background: rgba(52, 211, 153, 0.12);
+    border-color: rgba(52, 211, 153, 0.45);
+    color: #6ee7b7;
+}
+.dash-persona-card__fs {
+    font-size: 0.72rem;
+    color: #cbd5e1;
+    margin-top: 0.35rem;
+    line-height: 1.35;
+}
+.fs-upload-dropzone {
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    text-align: center;
+    cursor: pointer;
+    background: rgba(15, 23, 42, 0.5);
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+.fs-upload-dropzone:hover,
+.fs-upload-dropzone--hover {
+    border-color: var(--primary);
+    background: rgba(99, 102, 241, 0.08);
+}
+.fs-upload-dropzone__hint {
+    font-size: 0.82rem;
+    color: var(--muted);
+}
+.fs-upload-status {
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin: 0.5rem 0 0;
+}
 .dash-tag-heatmap {
     margin-top: 0.75rem;
     overflow-x: auto;
@@ -880,4 +928,149 @@ main > h1 {
 .dash-input--grow {
     flex: 1 1 12rem;
     min-width: 8rem;
+}
+
+/* Session scope toolbar */
+.dash-scope-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.65rem;
+    padding: 0.5rem 0.65rem;
+    margin-bottom: 0.65rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(15, 23, 42, 0.55);
+    font-size: 0.78rem;
+}
+.dash-scope-chip {
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    font-weight: 600;
+    background: rgba(99, 102, 241, 0.25);
+    border: 1px solid rgba(129, 140, 248, 0.35);
+}
+.dash-scope-chip--all {
+    background: rgba(51, 65, 85, 0.5);
+    border-color: var(--border);
+    font-weight: 500;
+}
+.dash-scope-chip--session {
+    background: rgba(16, 185, 129, 0.18);
+    border-color: rgba(52, 211, 153, 0.35);
+}
+.dash-scope-chip--user {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(96, 165, 250, 0.4);
+}
+.dash-scope-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    color: var(--muted);
+    margin-left: auto;
+}
+.dash-scope-toggle input {
+    accent-color: var(--primary);
+}
+
+/* Timeline + behavior visuals */
+.dash-timeline-host {
+    min-height: 220px;
+    max-height: 360px;
+}
+.card--timeline-block .chart-container {
+    min-height: 220px;
+}
+.label-breakdown-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    align-items: flex-start;
+}
+.label-breakdown-col {
+    flex: 1 1 11rem;
+    min-width: 10rem;
+    max-width: 18rem;
+    padding: 0.65rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: rgba(15, 23, 42, 0.45);
+}
+.label-breakdown-col__title {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--border);
+}
+.label-breakdown-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.35rem;
+    font-size: 0.72rem;
+}
+.label-breakdown-row__meta {
+    flex: 0 0 auto;
+    width: 6.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+}
+.label-breakdown-bar {
+    flex: 1;
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(51, 65, 85, 0.65);
+    overflow: hidden;
+}
+.label-breakdown-bar__fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.2s ease;
+}
+.label-breakdown-row__pct {
+    flex: 0 0 2.5rem;
+    text-align: right;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+.transition-heatmap-wrap {
+    overflow-x: auto;
+}
+.transition-heatmap {
+    display: inline-block;
+    min-width: min(100%, 560px);
+}
+.transition-matrix {
+    border-collapse: collapse;
+    font-size: 0.68rem;
+}
+.transition-matrix th,
+.transition-matrix td {
+    border: 1px solid var(--border);
+    padding: 0.28rem 0.38rem;
+    text-align: center;
+}
+.transition-matrix th {
+    background: rgba(15, 23, 42, 0.85);
+    color: var(--muted);
+    font-weight: 600;
+    max-width: 6rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.transition-matrix .transition-corner {
+    background: transparent;
+    border: none;
+}
+.transition-cell {
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+.transition-cell--diag {
+    opacity: 0.35;
 }
