@@ -11,9 +11,9 @@ Customers embed a **lightweight loader** on their properties. The loader:
 1. Identifies the **organization** (and authenticates with a **publishable** credential).
 2. Fetches **org-specific runtime config** (thresholds, model asset pointers, collector endpoint hints, feature flags).
 3. Boots the **worker / fingerprint pipeline** under a stable contract.
-4. Sends compact events (**fingerprints + metadata + replay links**) to our **tenant-partitioned** backend.
+4. Emits compact **kinetic** signals as **FullStory analytics events** (`trackEvent` with fingerprint + metadata + replay URL) by default; **optional** dual-write to our **tenant-partitioned** backend when customers set **`NEXUS_DUAL_WRITE`**.
 
-**FullStory** (or similar) remains the replay surface: we store vectors and **deep links**, not video. Positioning: *intelligent routing into existing replay*, not a competing player.
+**FullStory** is the default **capture and analysis** surface for the browser snippet (events + replay). Positioning: *behavioral embeddings where teams already work*, with warehouse ingest as an optional add-on for internal dashboards—not a prerequisite for signal.
 
 ---
 
@@ -59,7 +59,7 @@ Customers embed a **lightweight loader** on their properties. The loader:
 | **Row-level security (Postgres)** | Optional hardening: policies enforce `org_id` match on read/write. |
 | **Physical isolation** | Per-tenant DB or schema—ops-heavy; defer until enterprise or compliance demand. |
 
-**Event shape (conceptual):** `org_id`, `session_id` / replay URL, `timestamp`, `fingerprint[]`, `label`, `challenge_module`, `event_id`, ingestion metadata. Replace single global `warehouse.jsonl` with **append-only, queryable** storage (tables or object store + index) with retention and per-org limits.
+**Event shape (conceptual):** `timestamp`, `fingerprint[]` (16 floats), `label`, `event_id`, `type: kinetic`, `session_url` / replay link, optional `nexus_user_key`. Browser snippet sends this set to **FullStory** as custom properties; **`challenge_module`** is not part of the snippet payload (lab/collector paths may still attach module context separately). For warehouse rows: `org_id`, ingestion metadata, and the same vector fields when **`NEXUS_DUAL_WRITE`** is enabled. Replace single global `warehouse.jsonl` with **append-only, queryable** storage (tables or object store + index) with retention and per-org limits.
 
 ---
 
@@ -133,4 +133,4 @@ Ship **after** multi-tenant ingest + config + internal ops are boringly reliable
 
 Living document on the **`product`** branch; revise as we ship slices and learn constraints (CSP, FS URL semantics, billing, etc.).
 
-**Shipped slice:** Postgres-backed **`POST /v1/ingest`**, **`GET /v1/summary`**, and **`POST /v1/discard`** keyed by publishable key; **`lab_console`** and instrumented customer pages load **`nexus-env.secrets.js`** then switch to **`/v1`** when **`NEXUS_PUBLISHABLE_KEY`** is set (Vercel: `npm run build` inject). For **production org-only** deploys, set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** on the collector—see **`docs/PRODUCTION_ORGS.md`**.
+**Shipped slice:** Browser **`nexus-snippet.js`** defaults to **FullStory `trackEvent`** for kinetic fingerprints (no publishable key required for that path). Optional **`window.NEXUS_DUAL_WRITE`** + publishable key continues to **`POST /v1/ingest`**. Postgres-backed **`GET /v1/summary`** and **`POST /v1/discard`** remain for operator dashboards; **`lab_console`** loads **`nexus-env.secrets.js`** and **`/v1`** when **`NEXUS_PUBLISHABLE_KEY`** is set (Vercel: `npm run build` inject). For **production org-only** deploys, set **`DISABLE_LEGACY_FILE_WAREHOUSE=true`** on the collector—see **`docs/PRODUCTION_ORGS.md`**.

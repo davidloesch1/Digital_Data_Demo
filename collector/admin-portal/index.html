@@ -185,7 +185,7 @@
 <body>
   <div class="wrap">
     <h1>Nexus collector · Internal admin</h1>
-    <p class="sub">Provision orgs and keys against this collector’s database. Requires <code>INTERNAL_ADMIN_TOKEN</code> on the server. Token stays in this browser only (session storage). After each new org you get a ready-to-paste <strong>&lt;head&gt;</strong> snippet that loads <code>/sdk/nexus-snippet.js</code>.</p>
+    <p class="sub">Provision orgs and keys against this collector’s database. Requires <code>INTERNAL_ADMIN_TOKEN</code> on the server. Token stays in this browser only (session storage). After each new org you get a ready-to-paste <strong>&lt;head&gt;</strong> snippet that loads <code>/sdk/nexus-snippet.js</code> after FullStory so kinetic rows emit as FS analytics events; the key below is for optional <code>NEXUS_DUAL_WRITE</code> collector POST.</p>
 
     <section id="step-login" class="panel">
       <h2>Sign in</h2>
@@ -267,7 +267,7 @@
         <div id="provision-flash" class="flash err"></div>
         <div id="provision-result" class="hidden">
           <p style="margin: 0.75rem 0 0; color: var(--muted); font-size: 0.85rem;">
-            <strong>Customer <code>&lt;head&gt;</code> snippet</strong> — paste on their site (after FullStory if used). Loads <code>/sdk/nexus-snippet.js</code> from your collector.
+            <strong>Customer <code>&lt;head&gt;</code> snippet</strong> — load FullStory first, then this block. Kinetic data goes to FS <code>trackEvent</code> by default; set <code>window.NEXUS_DUAL_WRITE = true</code> in the inline script to also POST to the collector using the key.
           </p>
           <label for="collector-public-url">Collector base URL (<code>NEXUS_API_BASE</code>)</label>
           <input id="collector-public-url" type="text" autocomplete="off" placeholder="Defaults to this browser origin" />
@@ -492,9 +492,10 @@
       return (
         '<!-- Nexus capture · org: ' +
         slugComment +
-        ' — paste in <head> (after FullStory if you use it) -->\n' +
+        ' — FullStory bootstrap must run before this block. Kinetic → FS trackEvent; optional collector: set NEXUS_DUAL_WRITE -->\n' +
         sOpen +
         '\n' +
+        '  // window.NEXUS_DUAL_WRITE = true;  // uncomment to also POST /v1/ingest\n' +
         '  window.NEXUS_PUBLISHABLE_KEY = "' +
         escapeForJsDoubleQuoted(key) +
         '";\n' +

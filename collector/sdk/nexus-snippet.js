@@ -3,17 +3,24 @@
  * Served publicly at GET /sdk/nexus-snippet.js (no auth).
  */
 /**
- * Nexus minimal browser capture — self-contained (includes collector URL wiring).
+ * Nexus minimal browser capture — self-contained (collector URL wiring optional).
  * Keep env normalization in sync with lab_console/js/nexus-env.js when that file changes.
  *
- * Expects before load (inline script): window.NEXUS_PUBLISHABLE_KEY, window.NEXUS_API_BASE
- * Optional: window.NexusSnippet = { label, flushMs, challenge_module, disabled }
- * Optional: window.NEXUS_USER_KEY for per-visitor clustering when you set it elsewhere.
+ * Default: sends each flush as a FullStory analytics event via FS('trackEvent', { name, properties }).
+ * See https://developer.fullstory.com/browser/capture-events/analytics-events/
+ *
+ * Optional dual-write: set window.NEXUS_DUAL_WRITE = true and configure NEXUS_PUBLISHABLE_KEY + collector base to also POST /v1/ingest.
+ *
+ * Optional: window.NexusSnippet = {
+ *   disabled, flushMs, label,
+ *   event_name: string (default 'nexus_kinetic_fingerprint', max 250 chars for FS)
+ * }
+ * Optional: window.NEXUS_USER_KEY for per-visitor correlation in FS properties.
  */
 (function () {
     if (typeof window === "undefined" || typeof document === "undefined") return;
 
-    /* --- nexus-env (subset; mirrors lab_console/js/nexus-env.js) --- */
+    /* --- nexus-env (subset; mirrors lab_console/js/nexus-env.js) — used when NEXUS_DUAL_WRITE --- */
     function normalizeCollectorOrigin(value) {
         var s = String(value || "").trim();
         if (!s) return "";
@@ -52,20 +59,22 @@
         pubStr ? "/v1/summary" : "/summary"
     );
 
-    /* --- snippet --- */
+    /* --- capture --- */
     var cfg = window.NexusSnippet && typeof window.NexusSnippet === "object" ? window.NexusSnippet : {};
     if (cfg.disabled) return;
 
+    var dualWrite = Boolean(window.NEXUS_DUAL_WRITE);
     var flushMs = Math.max(2000, Math.min(60000, Number(cfg.flushMs) || 8000));
     var label = (cfg.label != null && String(cfg.label).trim()) || "SITE";
-    var challengeModule =
-        (cfg.challenge_module != null && String(cfg.challenge_module).trim()) || "site-generic";
+    var eventNameDefault = "nexus_kinetic_fingerprint";
 
     var moves = [];
     var maxMoves = 120;
     var scrollDy = 0;
     var clicks = 0;
     var warnedNoKey = false;
+    var warnedNoFs = false;
+    var warnedNoSink = false;
 
     function sessionUrl() {
         try {
@@ -83,10 +92,6 @@
 
     function evId() {
         return "nx_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 11);
-    }
-
-    function clamp(n, lo, hi) {
-        return Math.max(lo, Math.min(hi, n));
     }
 
     function tanh(x) {
@@ -158,7 +163,6 @@
             event_id: evId(),
             fingerprint: buildFingerprint(),
             label: label,
-            challenge_module: challengeModule,
             session_url: sessionUrl(),
             timestamp: Date.now(),
         };
@@ -170,15 +174,62 @@
         return body;
     }
 
-    function post(body) {
+    /**
+     * @returns {boolean} true if FullStory accepted the call
+     */
+    function trackToFullStory(body) {
+        if (typeof window.FS !== "function") {
+            if (!warnedNoFs) {
+                warnedNoFs = true;
+                if (typeof console !== "undefined" && console.warn) {
+                    console.warn(
+                        "[NexusSnippet] FullStory FS() not available — load the FullStory snippet before nexus-snippet.js, or set window.NEXUS_DUAL_WRITE with NEXUS_PUBLISHABLE_KEY for collector POST."
+                    );
+                }
+            }
+            return false;
+        }
+        var name =
+            cfg.event_name != null && String(cfg.event_name).trim()
+                ? String(cfg.event_name).trim()
+                : eventNameDefault;
+        if (name.length > 250) name = name.slice(0, 250);
+
+        var props = {
+            source: "nexus_snippet",
+            type: body.type,
+            event_id: body.event_id,
+            label: body.label,
+            timestamp: body.timestamp,
+            session_url: body.session_url,
+            fingerprint: body.fingerprint,
+        };
+        if (body.nexus_user_key) props.nexus_user_key = body.nexus_user_key;
+
+        try {
+            window.FS("trackEvent", { name: name, properties: props });
+            return true;
+        } catch (e) {
+            if (typeof console !== "undefined" && console.warn) {
+                console.warn("[NexusSnippet] FS trackEvent failed:", e && e.message ? e.message : e);
+            }
+            return false;
+        }
+    }
+
+    function postToCollector(body) {
+        if (!dualWrite) return;
         var base = window.NEXUS_COLLECT_BASE;
         var path = window.NEXUS_INGEST_PATH || "/v1/ingest";
         var pk = window.NEXUS_PUBLISHABLE_KEY;
         if (!pubStr || !pk) {
             if (!warnedNoKey) {
                 warnedNoKey = true;
-                if (typeof console !== "undefined" && console.warn)
-                    console.warn("[NexusSnippet] Set window.NEXUS_PUBLISHABLE_KEY before loading nexus-snippet.js");
+                if (typeof console !== "undefined" && console.warn) {
+                    console.warn(
+                        "[NexusSnippet] NEXUS_DUAL_WRITE is set but NEXUS_PUBLISHABLE_KEY is missing — collector POST skipped."
+                    );
+                }
             }
             return;
         }
@@ -201,10 +252,20 @@
 
     function flushSend() {
         var body = ingestBody();
-        post(body);
+        var okFs = trackToFullStory(body);
+        postToCollector(body);
+        if (!okFs && !dualWrite) {
+            if (!warnedNoSink) {
+                warnedNoSink = true;
+                if (typeof console !== "undefined" && console.warn) {
+                    console.warn(
+                        "[NexusSnippet] No event sink: enable FullStory before this script, or set window.NEXUS_DUAL_WRITE with publishable key + collector URL."
+                    );
+                }
+            }
+        }
         scrollDy = 0;
         clicks = 0;
-        /* keep last 30 moves for continuity */
         if (moves.length > 30) moves = moves.slice(-30);
     }
 

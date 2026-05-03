@@ -1,49 +1,66 @@
 # Nexus browser snippet
 
-Minimal **two-script-tag** integration: configure your collector + publishable key, then load **`nexus-snippet.js`**. It periodically POSTs coarse pointer/scroll **kinetic** rows to **`POST /v1/ingest`** (same JSON shape as the rest of this repo’s warehouse). Your operator dashboard (**`lab_console`**) reads them via **`GET /v1/summary`**.
+Minimal integration: load **FullStory** first, then **`nexus-snippet.js`**. Each flush emits a **FullStory analytics event** via **`FS('trackEvent', { name, properties })`** ([Analytics Events](https://developer.fullstory.com/browser/capture-events/analytics-events/)) with a **16-number `fingerprint`**, `event_id`, `label`, `timestamp`, and **`session_url`** (prefers **`FS.getCurrentSessionURL(true)`** when available).
 
-## Prerequisites
+**Collector POST** (`POST /v1/ingest`) is **optional**: set **`window.NEXUS_DUAL_WRITE = true`** and configure **`NEXUS_PUBLISHABLE_KEY`** + **`NEXUS_API_BASE`** / **`NEXUS_COLLECT_BASE`** so the same JSON body is also sent to the warehouse (same shape as before, without `challenge_module` on new captures).
 
-1. **Collector** running with Postgres (**`DATABASE_URL`**, **`PUBLISHABLE_KEY_PEPPER`**).
-2. **`nx_pub_…`** key from **`collector`** → **`npm run create-org`**.
-3. **`CORS_ORIGINS`** on the collector must include your site’s **exact origin** (scheme + host + port).
+## Prerequisites (FS-first)
+
+1. **FullStory** recording/snippet on the page **before** `nexus-snippet.js` so `window.FS` exists at flush time.
+2. **Optional dual-write:** collector running with Postgres, **`nx_pub_…`** key, and **`CORS_ORIGINS`** including the site origin — only needed when **`NEXUS_DUAL_WRITE`** is true.
 
 ## Paste on your site
 
-Use **HTTPS** in production. Replace origins and the key.
+Use **HTTPS** in production.
 
 ```html
-<!-- 1) Configure (inline). Must run before the snippet. -->
+<!-- 0) FullStory bootstrap first (your org snippet). -->
+
+<!-- 1) Optional inline config before nexus-snippet.js -->
 <script>
-  window.NEXUS_PUBLISHABLE_KEY = "nx_pub_YOUR_KEY_HERE";
-  window.NEXUS_API_BASE = "https://your-collector.example.com";
-  // Optional tuning:
-  // window.NexusSnippet = { label: "SITE", challenge_module: "site-generic", flushMs: 8000 };
-  // Optional stable visitor id (if you set it yourself or via FS.identify flows):
-  // window.NEXUS_USER_KEY = "visitor-stable-id";
+  // window.NexusSnippet = {
+  //   label: "SITE",
+  //   event_name: "nexus_kinetic_fingerprint",  // FS event name; max 250 chars
+  //   flushMs: 8000,  // clamped 2000–60000; default ~7.5 events/min (under FS ~60/user/page/min)
+  //   disabled: false,
+  // };
+  // window.NEXUS_USER_KEY = "visitor-stable-id";  // optional; sent as a property
+  // window.NEXUS_DUAL_WRITE = true;  // optional; also POST to collector:
+  // window.NEXUS_PUBLISHABLE_KEY = "nx_pub_…";
+  // window.NEXUS_API_BASE = "https://your-collector.example.com";
 </script>
-<!-- 2) Host this file from your CDN or static origin (same repo path shown for copy/paste). -->
+<!-- 2) Host from CDN or collector -->
 <script src="/packages/browser/nexus-snippet.js" defer></script>
 ```
 
-**FullStory:** Load FullStory **before** this snippet if you want **`session_url`** to prefer **`FS.getCurrentSessionURL`** when that API exists; otherwise the snippet falls back to **`window.location.href`**.
+### Load order
+
+FullStory must run first so **`session_url`** uses the replay URL API and **`trackEvent`** succeeds. If FS is missing and dual-write is off, the snippet logs a one-time console warning.
+
+### Rate limits
+
+FullStory documents roughly **60 events per user per page per minute** (with burst limits). Default **`flushMs: 8000`** is about **7.5 events/minute**. If you lower **`flushMs`**, stay under FS caps or add your own throttling.
+
+### Privacy (PII)
+
+**`session_url`** may contain sensitive query fragments. Treat custom event properties like any other FS data: use **masking / exclude rules** and your DPA with FullStory as appropriate.
 
 ## Behavior
 
 - Samples **`mousemove`**, **`wheel`**, **`click`** on **`document`** (passive where possible).
-- Every **`flushMs`** (default **8000** ms), on tab hide, and on **`pagehide`**, sends one **`type: "kinetic"`** payload with a **16-D** **`fingerprint`** derived from recent movement (not ML-grade—enough to populate the discovery dashboard).
-- Exposes **`window.NexusSnippetFlush()`** for manual flush if you need it.
+- Every **`flushMs`**, on tab hide, and on **`pagehide`**, builds one payload and calls **`FS('trackEvent', …)`** (and optionally **`fetch`** to the collector when **`NEXUS_DUAL_WRITE`** is set).
+- Exposes **`window.NexusSnippetFlush()`** for a manual flush.
 
 ## Files
 
 | File | Role |
 |------|------|
-| **`nexus-snippet.js`** | Self-contained: applies **`nexus-env`–compatible** `window.NEXUS_*` defaults, then starts capture. |
+| **`nexus-snippet.js`** | Self-contained: optional **`nexus-env`–compatible** `window.NEXUS_*` defaults when dual-writing, then capture. |
 
-The collector also serves a copy at **`GET /sdk/nexus-snippet.js`** (file **`collector/sdk/nexus-snippet.js`**). **Keep those two files in sync** when you change capture logic.
+The collector also serves a copy at **`GET /sdk/nexus-snippet.js`** (**`collector/sdk/nexus-snippet.js`**). **Keep those two files in sync** when you change capture logic.
 
-Env normalization should stay aligned with **`lab_console/js/nexus-env.js`**; if you change collector URL rules there, mirror the same block at the top of **`nexus-snippet.js`**.
+Env normalization should stay aligned with **`lab_console/js/nexus-env.js`** when dual-write paths use collector URLs.
 
 ## Security note
 
-The publishable key is visible in the browser (same model as **`lab_console`** build inject). Rotate keys from the collector/DB side when needed; scope **`CORS`** to known origins.
+When dual-writing, the publishable key is visible in the browser. Rotate keys from the collector/DB side when needed; scope **`CORS`** to known origins.
