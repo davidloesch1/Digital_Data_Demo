@@ -53,11 +53,13 @@ Customers embed a **lightweight loader** on their properties. The loader:
 
 **Partitioning strategy (evolve over time)**
 
-| Approach | Notes |
-|----------|--------|
-| **Logical (recommended MVP)** | Every row includes `org_id`; all queries filter `WHERE org_id = :org`. Middleware binds `:org` from validated key—**never** trust raw `org_id` from client body alone. |
-| **Row-level security (Postgres)** | Optional hardening: policies enforce `org_id` match on read/write. |
-| **Physical isolation** | Per-tenant DB or schema—ops-heavy; defer until enterprise or compliance demand. |
+
+| Approach                          | Notes                                                                                                                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Logical (recommended MVP)**     | Every row includes `org_id`; all queries filter `WHERE org_id = :org`. Middleware binds `:org` from validated key—**never** trust raw `org_id` from client body alone. |
+| **Row-level security (Postgres)** | Optional hardening: policies enforce `org_id` match on read/write.                                                                                                     |
+| **Physical isolation**            | Per-tenant DB or schema—ops-heavy; defer until enterprise or compliance demand.                                                                                        |
+
 
 **Event shape (conceptual):** `timestamp`, `fingerprint[]` (16 floats), `label`, `event_id`, `type: kinetic`, `session_url` / replay link, optional `nexus_user_key`. Browser snippet sends this set to **FullStory** as custom properties; **`challenge_module`** is not part of the snippet payload (lab/collector paths may still attach module context separately). For warehouse rows: `org_id`, ingestion metadata, and the same vector fields when **`NEXUS_DUAL_WRITE`** is enabled. Replace single global `warehouse.jsonl` with **append-only, queryable** storage (tables or object store + index) with retention and per-org limits.
 
@@ -120,11 +122,11 @@ Ship **after** multi-tenant ingest + config + internal ops are boringly reliable
 
 ## 7. Loose implementation order
 
-1. Multi-tenant storage + ingest authenticated by publishable key → enforced `org_id` on every row.  
-2. **`GET /v1/config`** + loader wiring into the worker.  
-3. **Internal portal** for org + key + defaults + CORS/origin policy.  
-4. Harden staging/prod split (Railway + Vercel env scoping).  
-5. Customer dashboard + settings write path + webhooks.  
+1. Multi-tenant storage + ingest authenticated by publishable key → enforced `org_id` on every row.
+2. **`GET /v1/config`** + loader wiring into the worker.
+3. **Internal portal** for org + key + defaults + CORS/origin policy.
+4. Harden staging/prod split (Railway + Vercel env scoping).
+5. Customer dashboard + settings write path + webhooks.
 6. Deeper isolation, RLS, enterprise controls as needed.
 
 ---

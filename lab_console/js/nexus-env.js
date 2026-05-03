@@ -21,7 +21,7 @@
         }
         return s.replace(/\/?$/, "");
     }
-    var fallback = "https://digitaldatademo-production.up.railway.app";
+    var fallback = "https://gentle-amazement-staging.up.railway.app";
     var single = window.NEXUS_API_BASE;
     var collect =
         window.NEXUS_COLLECT_BASE ||
