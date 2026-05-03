@@ -14,6 +14,7 @@
         <nav class="console-topbar__nav" aria-label="Console navigation">
             <a href="index.html" class="console-topbar__nav--active">Home</a>
             <a href="../dashboard.html">Dashboard</a>
+            <a href="../master-dashboard.html">Local master</a>
             <a href="../segmentation.html">Segmentation</a>
             <a href="../login.html">Sign in</a>
         </nav>
@@ -34,6 +35,11 @@
                 <div class="console-hub-card__label">Configure</div>
                 <h2 class="console-hub-card__title">Visitor segmentation</h2>
                 <p class="console-hub-card__desc">Stable visitor IDs for Nexus plus FullStory user variables (e.g. <code style="color:#cbd5e1">nexus_cohort</code>).</p>
+            </a>
+            <a class="console-hub-card" href="../master-dashboard.html">
+                <div class="console-hub-card__label">Local dev</div>
+                <h2 class="console-hub-card__title">Master dashboard</h2>
+                <p class="console-hub-card__desc">All orgs on one screen via <code style="color:#cbd5e1">/local/v1/master-summary</code>. Requires Postgres collector with <code style="color:#cbd5e1">ENABLE_LOCAL_MASTER_SUMMARY</code>.</p>
             </a>
         </div>
     </main>

@@ -37,6 +37,18 @@ function jwtFromRequest(req) {
     return null;
 }
 
+/** Normalize JWT org list (multi-org Google sessions vs legacy single-org tokens). */
+function normalizeOrgAccessFromClaims(claims) {
+    if (!claims) return [];
+    if (Array.isArray(claims.org_access) && claims.org_access.length) {
+        return claims.org_access.filter((o) => o && o.id && o.slug);
+    }
+    if (claims.org_id && claims.org_slug) {
+        return [{ id: claims.org_id, slug: claims.org_slug }];
+    }
+    return [];
+}
+
 /** @param {import('express').Express} app */
 function mountConsoleBffRoutes(app, ctx) {
     const bffSecret = process.env.CONSOLE_BFF_SECRET;
@@ -81,6 +93,22 @@ function mountConsoleBffRoutes(app, ctx) {
         }
         if (!org) {
             return res.status(404).json({ error: 'Unknown organization' });
+        }
+        try {
+            const allowed = await ctx.tenantDbApi.isConsoleEmailAllowedForOrg(
+                tenantContext.pool,
+                org.id,
+                email
+            );
+            if (!allowed) {
+                return res.status(403).json({
+                    error: 'Email not allowed for this organization',
+                    hint: 'Add this email in Internal admin → Console login emails, or remove all listed emails to allow any address (legacy).',
+                });
+            }
+        } catch (e) {
+            console.error('bff magic-token allowlist:', e);
+            return res.status(500).json({ error: 'Allowlist check failed' });
         }
         try {
             const { plainToken } = await ctx.tenantDbApi.createConsoleMagicToken(
@@ -128,13 +156,15 @@ function mountConsoleBffRoutes(app, ctx) {
         if (!slugRow) {
             return res.status(500).json({ error: 'Org missing' });
         }
+        const emailNorm = normalizeEmail(row.email);
         const jwt = signJwt(
             jwtSecret,
             {
                 typ: 'nexus_console',
                 org_id: row.org_id,
                 org_slug: slugRow.slug,
-                email: row.email,
+                email: emailNorm,
+                org_access: [{ id: row.org_id, slug: slugRow.slug }],
             },
             SESSION_TTL_SEC
         );
@@ -143,6 +173,104 @@ function mountConsoleBffRoutes(app, ctx) {
             expires_in_sec: SESSION_TTL_SEC,
             org_slug: slugRow.slug,
         });
+    });
+
+    /** Server-only: Vercel verifies Google, then sends normalized email here. */
+    router.post('/session-from-verified-email', async (req, res) => {
+        if (!bffSecretOk(req, bffSecret)) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
+        const tenantContext = ctx.getTenantContext();
+        if (!tenantContext) {
+            return res.status(503).json({ error: 'Database not configured' });
+        }
+        const email = normalizeEmail(req.body && req.body.email);
+        if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            return res.status(400).json({ error: 'valid email required' });
+        }
+        let access;
+        try {
+            access = await ctx.tenantDbApi.listOrgAccessForConsoleEmail(tenantContext.pool, email);
+        } catch (e) {
+            console.error('bff session-from-verified-email:', e);
+            return res.status(500).json({ error: 'Lookup failed' });
+        }
+        if (!access.length) {
+            return res.status(403).json({
+                error: 'No console access for this email',
+                hint: 'Ask an admin to add your Google email under Console login emails for each org.',
+            });
+        }
+        const org_access = access.map((o) => ({ id: o.id, slug: o.slug }));
+        const first = access[0];
+        const jwt = signJwt(
+            jwtSecret,
+            {
+                typ: 'nexus_console',
+                email,
+                org_id: first.id,
+                org_slug: first.slug,
+                org_access,
+            },
+            SESSION_TTL_SEC
+        );
+        return res.status(200).json({ jwt, expires_in_sec: SESSION_TTL_SEC });
+    });
+
+    /** Browser session JWT → safe org list for dashboard switcher. */
+    router.get('/session', async (req, res) => {
+        const rawJwt = jwtFromRequest(req);
+        if (!rawJwt) {
+            return res.status(401).json({ error: 'Missing bearer token' });
+        }
+        const claims = verifyJwt(jwtSecret, rawJwt);
+        if (!claims || !claims.org_id) {
+            return res.status(401).json({ error: 'Invalid or expired session' });
+        }
+        const access = normalizeOrgAccessFromClaims(claims);
+        res.status(200).json({
+            email: claims.email ? String(claims.email) : '',
+            active_org_slug: claims.org_slug ? String(claims.org_slug) : '',
+            org_access: access.map((o) => ({ slug: String(o.slug) })),
+        });
+    });
+
+    /** Switch active org within the same session (must be in org_access). */
+    router.post('/switch-org', async (req, res) => {
+        const rawJwt = jwtFromRequest(req);
+        if (!rawJwt) {
+            return res.status(401).json({ error: 'Missing bearer token' });
+        }
+        const claims = verifyJwt(jwtSecret, rawJwt);
+        if (!claims || !claims.org_id) {
+            return res.status(401).json({ error: 'Invalid or expired session' });
+        }
+        const wantSlug =
+            req.body && req.body.org_slug != null ? String(req.body.org_slug).trim() : '';
+        if (!wantSlug) {
+            return res.status(400).json({ error: 'org_slug required' });
+        }
+        const access = normalizeOrgAccessFromClaims(claims);
+        const pick = access.find(
+            (o) =>
+                String(o.slug) === wantSlug ||
+                String(o.slug).toLowerCase() === wantSlug.toLowerCase()
+        );
+        if (!pick) {
+            return res.status(403).json({ error: 'Not allowed for this organization' });
+        }
+        const jwt = signJwt(
+            jwtSecret,
+            {
+                typ: 'nexus_console',
+                email: claims.email,
+                org_id: pick.id,
+                org_slug: pick.slug,
+                org_access: access,
+            },
+            SESSION_TTL_SEC
+        );
+        return res.status(200).json({ jwt, expires_in_sec: SESSION_TTL_SEC });
     });
 
     router.get('/summary', async (req, res) => {
@@ -173,7 +301,7 @@ function mountConsoleBffRoutes(app, ctx) {
 
     app.use('/bff/v1', router);
     console.log(
-        'Collector: console BFF at POST /bff/v1/magic-token, POST /bff/v1/magic-redeem, GET /bff/v1/summary (JWT)'
+        'Collector: console BFF magic-link + Google session + GET /bff/v1/session, POST /bff/v1/switch-org, GET /bff/v1/summary'
     );
 }
 

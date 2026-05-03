@@ -57,6 +57,10 @@ async function ensureSchema(client) {
         ON behavior_events (org_id, created_at DESC);
     `);
     await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_behavior_events_created_desc
+        ON behavior_events (created_at DESC);
+    `);
+    await client.query(`
         CREATE TABLE IF NOT EXISTS console_magic_tokens (
             id UUID PRIMARY KEY,
             org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
@@ -70,6 +74,26 @@ async function ensureSchema(client) {
         CREATE INDEX IF NOT EXISTS idx_console_magic_tokens_hash
         ON console_magic_tokens (token_hash);
     `);
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS console_org_members (
+            id UUID PRIMARY KEY,
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            email TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (org_id, email)
+        );
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_console_org_members_email
+        ON console_org_members (lower(email));
+    `);
+}
+
+/** Normalize email for console allowlist (lowercase, trim). */
+function normalizeConsoleEmail(raw) {
+    return String(raw || '')
+        .trim()
+        .toLowerCase();
 }
 
 /**
@@ -151,6 +175,32 @@ async function fetchRecentPayloads(pool, orgIdUuid, limit) {
         [orgIdUuid, limit]
     );
     return rows.map((r) => r.payload).reverse();
+}
+
+/**
+ * Recent payloads across all orgs (local master dashboard only). Newest-first query, returned chronological.
+ * Adds `_master_org_id` / `_master_org_slug` for UI disambiguation.
+ * @param {import('pg').Pool} pool
+ * @param {number} limit
+ * @returns {Promise<object[]>}
+ */
+async function fetchRecentPayloadsAllOrgs(pool, limit) {
+    const { rows } = await pool.query(
+        `SELECT be.payload, o.id AS org_id, o.slug AS org_slug
+         FROM behavior_events be
+         INNER JOIN organizations o ON o.id = be.org_id
+         ORDER BY be.created_at DESC
+         LIMIT $1`,
+        [limit]
+    );
+    return rows
+        .map((r) => {
+            const p = r.payload && typeof r.payload === 'object' ? { ...r.payload } : {};
+            p._master_org_id = r.org_id;
+            p._master_org_slug = r.org_slug;
+            return p;
+        })
+        .reverse();
 }
 
 /**
@@ -269,6 +319,77 @@ async function consumeConsoleMagicToken(pool, plainToken) {
     return rows[0] || null;
 }
 
+/**
+ * If an org has zero console_org_members rows, any email may request magic links (legacy).
+ * Once at least one member exists, only listed emails may log in for that org.
+ */
+async function countConsoleMembersForOrg(pool, orgIdUuid) {
+    const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS c FROM console_org_members WHERE org_id = $1`,
+        [orgIdUuid]
+    );
+    return rows[0] ? rows[0].c : 0;
+}
+
+async function isConsoleEmailAllowedForOrg(pool, orgIdUuid, rawEmail) {
+    const email = normalizeConsoleEmail(rawEmail);
+    if (!email) return false;
+    const n = await countConsoleMembersForOrg(pool, orgIdUuid);
+    if (n === 0) return true;
+    const { rows } = await pool.query(
+        `SELECT 1 FROM console_org_members WHERE org_id = $1 AND email = $2 LIMIT 1`,
+        [orgIdUuid, email]
+    );
+    return rows.length > 0;
+}
+
+/** @returns {Promise<Array<{ email: string, created_at: Date }>>} */
+async function listConsoleMembersForOrg(pool, orgIdUuid) {
+    const { rows } = await pool.query(
+        `SELECT email, created_at FROM console_org_members
+         WHERE org_id = $1 ORDER BY created_at ASC`,
+        [orgIdUuid]
+    );
+    return rows;
+}
+
+async function addConsoleMember(pool, orgIdUuid, rawEmail) {
+    const email = normalizeConsoleEmail(rawEmail);
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        throw new Error('invalid_email');
+    }
+    const id = crypto.randomUUID();
+    await pool.query(
+        `INSERT INTO console_org_members (id, org_id, email) VALUES ($1, $2, $3)`,
+        [id, orgIdUuid, email]
+    );
+}
+
+async function removeConsoleMember(pool, orgIdUuid, rawEmail) {
+    const email = normalizeConsoleEmail(rawEmail);
+    if (!email) return 0;
+    const { rowCount } = await pool.query(
+        `DELETE FROM console_org_members WHERE org_id = $1 AND email = $2`,
+        [orgIdUuid, email]
+    );
+    return rowCount || 0;
+}
+
+/** Orgs this email may access via console (Google / multi-org session). */
+async function listOrgAccessForConsoleEmail(pool, rawEmail) {
+    const email = normalizeConsoleEmail(rawEmail);
+    if (!email) return [];
+    const { rows } = await pool.query(
+        `SELECT o.id, o.slug, o.name
+         FROM console_org_members m
+         INNER JOIN organizations o ON o.id = m.org_id
+         WHERE m.email = $1
+         ORDER BY o.slug ASC`,
+        [email]
+    );
+    return rows;
+}
+
 async function revokePublishableKey(pool, pepper, rawKey) {
     if (!rawKey || typeof rawKey !== 'string') return 0;
     const trimmed = rawKey.trim();
@@ -287,11 +408,13 @@ module.exports = {
     KEY_PREFIX_LEN,
     hashPublishableKey,
     publishableKeyPrefix,
+    normalizeConsoleEmail,
     ensureSchema,
     createPoolAndMigrate,
     resolvePublishableKey,
     insertBehaviorEvent,
     fetchRecentPayloads,
+    fetchRecentPayloadsAllOrgs,
     deleteRecentEventsBySessionUrl,
     provisionOrgAndPublishableKey,
     revokePublishableKey,
@@ -299,4 +422,10 @@ module.exports = {
     getOrganizationBySlug,
     createConsoleMagicToken,
     consumeConsoleMagicToken,
+    countConsoleMembersForOrg,
+    isConsoleEmailAllowedForOrg,
+    listConsoleMembersForOrg,
+    addConsoleMember,
+    removeConsoleMember,
+    listOrgAccessForConsoleEmail,
 };

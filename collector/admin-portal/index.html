@@ -112,6 +112,18 @@
       border: 1px solid rgba(224, 112, 112, 0.35);
     }
     .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.25rem; }
+    a.master-dash-link {
+      display: inline-block;
+      text-decoration: none;
+      border-radius: 6px;
+      padding: 0.55rem 1rem;
+      font-weight: 600;
+      font-size: 0.9rem;
+      background: rgba(91, 159, 212, 0.18);
+      color: var(--accent);
+      border: 1px solid rgba(91, 159, 212, 0.45);
+    }
+    a.master-dash-link:hover { filter: brightness(1.12); }
     .flash {
       padding: 0.65rem 0.85rem;
       border-radius: 6px;
@@ -186,6 +198,9 @@
     </section>
 
     <div id="step-app" class="hidden">
+      <div class="actions" style="margin-bottom: 1rem;">
+        <a class="master-dash-link" href="master-dashboard">Master dashboard — all orgs</a>
+      </div>
       <section class="panel">
         <h2>Organizations</h2>
         <div class="actions" style="margin-bottom: 0.75rem;">
@@ -201,6 +216,37 @@
           </table>
         </div>
         <p id="orgs-empty" class="sub" style="margin: 0.5rem 0 0;">No organizations yet.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Console login emails</h2>
+        <p class="sub" style="margin: 0 0 1rem;">
+          Allowed operators for the Vercel dashboard (<strong>Google sign-in</strong> or magic link). Use each user’s
+          <strong>Google account email</strong> if they use Google. If <em>no</em> addresses are listed for an org,
+          any email may still request a magic link for that org (legacy). After you add the first email for an org,
+          only listed addresses may log in for that org.
+        </p>
+        <label for="console-org-pick">Organization</label>
+        <select id="console-org-pick">
+          <option value="">— Select org —</option>
+        </select>
+        <div class="actions" style="margin-top: 0.5rem;">
+          <button type="button" class="ghost" id="btn-refresh-console-members">Load members</button>
+        </div>
+        <label for="console-member-email">Email to allow</label>
+        <input id="console-member-email" type="email" autocomplete="off" placeholder="you@company.com" />
+        <div class="actions">
+          <button type="button" class="primary" id="btn-add-console-member">Add email</button>
+        </div>
+        <div id="console-members-flash" class="flash err"></div>
+        <div style="overflow-x: auto; margin-top: 0.75rem;">
+          <table>
+            <thead>
+              <tr><th>Email</th><th>Added</th><th></th></tr>
+            </thead>
+            <tbody id="console-member-rows"></tbody>
+          </table>
+        </div>
       </section>
 
       <section class="panel">
@@ -316,6 +362,7 @@
     var orgs = data.orgs || [];
     if (!orgs.length) {
       empty.style.display = 'block';
+      refreshConsoleOrgSelect([]);
       return;
     }
     empty.style.display = 'none';
@@ -334,7 +381,88 @@
         '</td>';
       tbody.appendChild(tr);
     });
+    refreshConsoleOrgSelect(orgs);
   }
+
+    function refreshConsoleOrgSelect(orgs) {
+      var sel = document.getElementById('console-org-pick');
+      if (!sel) return;
+      var cur = sel.value;
+      sel.innerHTML = '<option value="">— Select org —</option>';
+      (orgs || []).forEach(function (o) {
+        var opt = document.createElement('option');
+        opt.value = o.slug;
+        opt.textContent = o.slug + ' — ' + o.name;
+        sel.appendChild(opt);
+      });
+      if (cur) {
+        var opts = sel.querySelectorAll('option');
+        var found = false;
+        opts.forEach(function (op) {
+          if (op.value === cur) found = true;
+        });
+        if (found) sel.value = cur;
+      }
+    }
+
+    async function loadConsoleMembers() {
+      var slug = document.getElementById('console-org-pick').value.trim();
+      var flash = document.getElementById('console-members-flash');
+      var tbody = document.getElementById('console-member-rows');
+      hideFlash(flash);
+      tbody.innerHTML = '';
+      if (!slug) {
+        showFlash(flash, false, 'Select an organization.');
+        return;
+      }
+      try {
+        var data = await api('GET', '/orgs/' + encodeURIComponent(slug) + '/console-members');
+        var members = data.members || [];
+        if (!members.length) {
+          var tr0 = document.createElement('tr');
+          var td0 = document.createElement('td');
+          td0.colSpan = 3;
+          td0.style.color = 'var(--muted)';
+          td0.textContent =
+            'No allowlist — any email may request a magic link for this org (legacy). Add emails to restrict.';
+          tr0.appendChild(td0);
+          tbody.appendChild(tr0);
+          return;
+        }
+        members.forEach(function (m) {
+          var tr = document.createElement('tr');
+          var td1 = document.createElement('td');
+          td1.textContent = m.email || '';
+          var td2 = document.createElement('td');
+          td2.textContent = m.created_at ? new Date(m.created_at).toLocaleString() : '—';
+          var td3 = document.createElement('td');
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'danger ghost';
+          btn.textContent = 'Remove';
+          (function (em) {
+            btn.addEventListener('click', async function () {
+              if (!confirm('Remove ' + em + ' from this org?')) return;
+              try {
+                await api('DELETE', '/orgs/' + encodeURIComponent(slug) + '/console-members', {
+                  email: em,
+                });
+                await loadConsoleMembers();
+              } catch (e) {
+                showFlash(flash, false, e.message || 'Remove failed');
+              }
+            });
+          })(m.email);
+          td3.appendChild(btn);
+          tr.appendChild(td1);
+          tr.appendChild(td2);
+          tr.appendChild(td3);
+          tbody.appendChild(tr);
+        });
+      } catch (e) {
+        showFlash(flash, false, e.message || 'Load failed');
+      }
+    }
 
     function escapeHtml(s) {
       if (s == null) return '';
@@ -434,6 +562,35 @@
     refreshOrgs().catch(function (e) {
       alert(e.message);
     });
+  });
+
+  document.getElementById('btn-refresh-console-members').addEventListener('click', function () {
+    loadConsoleMembers().catch(function (e) {
+      alert(e.message);
+    });
+  });
+
+  document.getElementById('btn-add-console-member').addEventListener('click', async function () {
+    var slug = document.getElementById('console-org-pick').value.trim();
+    var email = document.getElementById('console-member-email').value.trim();
+    var flash = document.getElementById('console-members-flash');
+    hideFlash(flash);
+    if (!slug) {
+      showFlash(flash, false, 'Select an organization.');
+      return;
+    }
+    if (!email) {
+      showFlash(flash, false, 'Enter an email.');
+      return;
+    }
+    try {
+      await api('POST', '/orgs/' + encodeURIComponent(slug) + '/console-members', { email: email });
+      document.getElementById('console-member-email').value = '';
+      showFlash(flash, true, 'Email added.');
+      await loadConsoleMembers();
+    } catch (e) {
+      showFlash(flash, false, e.message || 'Add failed');
+    }
   });
 
   document.getElementById('btn-provision').addEventListener('click', async function () {

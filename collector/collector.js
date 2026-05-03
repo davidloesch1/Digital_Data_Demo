@@ -161,11 +161,15 @@ app.get('/', (_req, res) => {
     ) {
         body.internal_admin_portal = 'GET /internal/admin';
         body.internal_admin_api =
-            'GET /internal/v1/orgs | POST /internal/v1/orgs | POST /internal/v1/keys/revoke';
+            'GET /internal/v1/orgs | GET /internal/v1/master-summary | POST /internal/v1/orgs | GET|POST|DELETE /internal/v1/orgs/:slug/console-members | POST /internal/v1/keys/revoke';
     }
     if (tenantContext && process.env.CONSOLE_BFF_SECRET && String(process.env.CONSOLE_BFF_SECRET).trim() !== '') {
         body.console_bff =
             'POST /bff/v1/magic-token | POST /bff/v1/magic-redeem | GET /bff/v1/summary (Bearer JWT)';
+    }
+    if (tenantContext && envTruthy('ENABLE_LOCAL_MASTER_SUMMARY')) {
+        body.local_master_summary =
+            'GET /local/v1/master-summary — all orgs; loopback client or Bearer LOCAL_MASTER_SUMMARY_TOKEN';
     }
     res.status(200).json(body);
 });
@@ -545,6 +549,71 @@ function mountInternalAdminRoutes(app) {
         }
     });
 
+    router.get('/orgs/:slug/console-members', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            const members = await tenantDbApi.listConsoleMembersForOrg(tenantContext.pool, org.id);
+            res.status(200).json({ members });
+        } catch (e) {
+            console.error('internal GET console-members:', e.message || e);
+            res.status(500).json({ error: 'List failed' });
+        }
+    });
+
+    router.post('/orgs/:slug/console-members', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        const email = req.body && req.body.email;
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            await tenantDbApi.addConsoleMember(tenantContext.pool, org.id, email);
+            res.status(201).json({ ok: true });
+        } catch (e) {
+            if (e && e.message === 'invalid_email') {
+                return res.status(400).json({ error: 'Invalid email' });
+            }
+            if (e && e.code === '23505') {
+                return res.status(409).json({ error: 'Email already listed' });
+            }
+            console.error('internal POST console-members:', e.message || e);
+            res.status(500).json({ error: 'Add failed' });
+        }
+    });
+
+    router.delete('/orgs/:slug/console-members', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        const email = req.body && req.body.email;
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            const n = await tenantDbApi.removeConsoleMember(tenantContext.pool, org.id, email);
+            if (!n) {
+                return res.status(404).json({ error: 'Email not in list' });
+            }
+            res.status(200).json({ ok: true });
+        } catch (e) {
+            console.error('internal DELETE console-members:', e.message || e);
+            res.status(500).json({ error: 'Remove failed' });
+        }
+    });
+
     router.post('/orgs', async (req, res) => {
         const slug = req.body && req.body.slug;
         const name = (req.body && req.body.name) || slug;
@@ -584,9 +653,81 @@ function mountInternalAdminRoutes(app) {
         }
     });
 
+    /** Same warehouse rows as GET /local/v1/master-summary; gated by INTERNAL_ADMIN_TOKEN (internal admin UI). */
+    router.get('/master-summary', async (req, res) => {
+        const limit = parseSummaryLimit(req);
+        try {
+            const data = await tenantDbApi.fetchRecentPayloadsAllOrgs(tenantContext.pool, limit);
+            res.setHeader('X-Summary-Line-Limit', String(limit));
+            res.setHeader('X-Summary-Lines-Returned', String(data.length));
+            res.setHeader('X-Master-Summary', 'all-orgs');
+            res.status(200).json(data);
+        } catch (e) {
+            console.error('internal GET /master-summary:', e.message || e);
+            res.status(500).json({ error: 'Read failed' });
+        }
+    });
+
     app.use('/internal/v1', router);
     console.log(
-        'Collector: internal admin API at GET|POST /internal/v1/orgs, POST /internal/v1/keys/revoke (INTERNAL_ADMIN_TOKEN)'
+        'Collector: internal admin API at /internal/v1/orgs, GET /internal/v1/master-summary, /orgs/:slug/console-members, POST /keys/revoke (INTERNAL_ADMIN_TOKEN)'
+    );
+}
+
+function isLoopbackRemoteAddress(addr) {
+    const ip = String(addr || '').trim();
+    return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
+/** Local dev: cross-org warehouse read. Off unless ENABLE_LOCAL_MASTER_SUMMARY=1; loopback or Bearer LOCAL_MASTER_SUMMARY_TOKEN. */
+function mountLocalMasterSummary(app) {
+    if (!envTruthy('ENABLE_LOCAL_MASTER_SUMMARY') || !tenantContext) {
+        return;
+    }
+    const optionalToken = process.env.LOCAL_MASTER_SUMMARY_TOKEN;
+    const tokenConfigured = optionalToken && String(optionalToken).trim() !== '';
+
+    function localMasterAuthOk(req) {
+        if (tokenConfigured) {
+            const auth = req.headers.authorization;
+            if (auth && typeof auth === 'string' && auth.toLowerCase().startsWith('bearer ')) {
+                const presented = auth.slice(7).trim();
+                const exp = String(optionalToken).trim();
+                try {
+                    const a = Buffer.from(presented, 'utf8');
+                    const b = Buffer.from(exp, 'utf8');
+                    if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+                        return true;
+                    }
+                } catch {
+                    /* fall through */
+                }
+            }
+        }
+        return isLoopbackRemoteAddress(req.socket && req.socket.remoteAddress);
+    }
+
+    app.get('/local/v1/master-summary', async (req, res) => {
+        if (!localMasterAuthOk(req)) {
+            return res.status(403).json({
+                error: 'Forbidden',
+                hint: 'Enable ENABLE_LOCAL_MASTER_SUMMARY=1 and call from localhost, or set LOCAL_MASTER_SUMMARY_TOKEN and Authorization: Bearer …',
+            });
+        }
+        const limit = parseSummaryLimit(req);
+        try {
+            const data = await tenantDbApi.fetchRecentPayloadsAllOrgs(tenantContext.pool, limit);
+            res.setHeader('X-Summary-Line-Limit', String(limit));
+            res.setHeader('X-Summary-Lines-Returned', String(data.length));
+            res.setHeader('X-Master-Summary', 'all-orgs');
+            res.status(200).json(data);
+        } catch (e) {
+            console.error('fetchRecentPayloadsAllOrgs:', e);
+            res.status(500).send('Read Error');
+        }
+    });
+    console.log(
+        'Collector: GET /local/v1/master-summary (all orgs; ENABLE_LOCAL_MASTER_SUMMARY — loopback or LOCAL_MASTER_SUMMARY_TOKEN)'
     );
 }
 
@@ -598,14 +739,27 @@ function mountInternalAdminPortal(app) {
     }
     const adminDir = path.join(__dirname, 'admin-portal');
     const adminIndex = path.join(adminDir, 'index.html');
+    const masterDashDir = path.join(adminDir, 'master-dash');
+    const masterDashIndex = path.join(masterDashDir, 'index.html');
     /** Avoid 302 /internal/admin → /internal/admin/: proxies often normalize slashes the other way → redirect loops. */
     function sendAdminIndex(_req, res) {
         res.sendFile(adminIndex);
     }
     app.get('/internal/admin', sendAdminIndex);
     app.get('/internal/admin/', sendAdminIndex);
+    app.get('/internal/admin/master-dashboard', (_req, res) => {
+        res.sendFile(masterDashIndex, (err) => {
+            if (err) {
+                console.error('internal admin master-dashboard:', err.message);
+                res.status(500).type('text/plain').send('Master dashboard bundle missing');
+            }
+        });
+    });
+    app.use('/internal/admin/master-dash', express.static(masterDashDir, { index: false }));
     app.use('/internal/admin', express.static(adminDir, { index: false }));
-    console.log('Collector: internal admin portal at GET /internal/admin (with or without trailing slash)');
+    console.log(
+        'Collector: internal admin portal at GET /internal/admin, GET /internal/admin/master-dashboard (with or without trailing slash on /internal/admin)'
+    );
 }
 
 async function start() {
@@ -631,6 +785,7 @@ async function start() {
         getTenantContext: () => tenantContext,
         parseSummaryLimit,
     });
+    mountLocalMasterSummary(app);
     app.listen(PORT, '0.0.0.0', () =>
         console.log(
             `🚀 Collector live on :${PORT} | warehouse: ${WAREHOUSE_PATH} | max ${WAREHOUSE_MAX_BYTES}B | summary last ${SUMMARY_MAX_LINES} lines` +

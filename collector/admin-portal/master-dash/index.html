@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <base href="/internal/admin/master-dash/" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Nexus Console | Discovery dashboard</title>
+    <title>Nexus · Internal master dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/dashboard.css">
@@ -30,10 +31,10 @@
         }(window,document,window._fs_namespace,"script",window._fs_script);
         </script>
 </head>
-<body class="dash-page">
+<body class="dash-page dash-page--master">
 
     <header class="dash-topbar" role="banner">
-        <div class="dash-topbar__brand">Nexus<span class="text-primary">Console</span></div>
+        <div class="dash-topbar__brand">Nexus<span class="text-primary">Console</span> <span class="dash-master-badge">All orgs</span></div>
         <div id="dash-segment-banner" class="dash-segment-banner" hidden>
             <span class="dash-segment-banner__label">Segmentation</span>
             <span id="dash-segment-banner-text" class="dash-segment-banner__text"></span>
@@ -44,9 +45,7 @@
                 <label class="dash-org-switch__label" for="dash-org-switch">Organization</label>
                 <select id="dash-org-switch" class="dash-org-switch__select" aria-label="Active organization"></select>
             </div>
-            <a class="dash-nav-link" href="console/index.html">Console home</a>
-            <a class="dash-nav-link" href="segmentation.html">Segmentation</a>
-            <a class="dash-nav-link" href="/api/auth/logout">Log out</a>
+            <a class="dash-nav-link" href="../">← Internal admin</a>
             <button type="button" class="btn-dash-info" id="btn-dash-how-it-works" aria-haspopup="dialog" aria-controls="dash-info-modal">
                 How this works
             </button>
@@ -91,7 +90,7 @@
                         <div>
                             <div class="label">Behavioral discovery cloud</div>
                             <h2 class="card-heading">K-means clusters on kinetic fingerprints</h2>
-                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Use <strong>Cloud points</strong> to plot one dot per kinetic row, per FullStory session (mean fingerprint), or per visitor (mean across sessions when <code>nexus_user_key</code> is present). Data comes from <code>warehouse.jsonl</code> via <code>/summary</code>.</p>
+                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Use <strong>Cloud points</strong> to plot one dot per kinetic row, per FullStory session (mean fingerprint), or per visitor (mean across sessions when <code>nexus_user_key</code> is present). This page loads <strong>all orgs</strong> from <code>GET /internal/v1/master-summary</code> (Postgres warehouse), not per-org <code>/v1/summary</code>.</p>
                             <p id="pca-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
                             <details class="dash-details">
                                 <summary class="dash-details__summary">What are PC1 / PC2, and when is “fallback” used?</summary>
@@ -219,7 +218,7 @@
                     <p class="dash-modal__eyebrow">Discovery dashboard</p>
                     <h2 id="dash-info-modal-title" class="dash-modal__title">Fingerprints, warehouse, and charts</h2>
                     <p id="dash-info-modal-desc" class="dash-modal__lede">
-                        A short guide to how kinetic fingerprints are produced, how they land in this view, and how to interpret what you see.
+                        Same visualization as the org dashboard, but this page loads <strong>every organization’s</strong> recent rows via <code>GET /internal/v1/master-summary</code>, authorized with the same <strong>internal admin token</strong> you used to unlock the admin portal (stored in session storage).
                     </p>
                 </div>
                 <form method="dialog" class="dash-modal__close-form">
@@ -228,13 +227,22 @@
             </header>
 
             <div class="dash-modal__body">
+                <section class="dash-modal__section dash-modal__section--master-local" aria-labelledby="dash-info-h-master">
+                    <h3 id="dash-info-h-master" class="dash-modal__h">Internal admin · all orgs</h3>
+                    <p>
+                        Data comes from <code>GET /internal/v1/master-summary</code> with <code>Authorization: Bearer</code> using your internal admin token. Anyone who can provision orgs with that token can read this merged warehouse — treat the token like root access.
+                    </p>
+                    <p>
+                        Sessions in the sidebar are prefixed with <strong>org slug</strong> when the same FullStory session id could appear under more than one tenant. Open this page only after unlocking <a href="../">internal admin</a> so the token is present in session storage.
+                    </p>
+                </section>
                 <section class="dash-modal__section" aria-labelledby="dash-info-h-pipeline">
                     <h3 id="dash-info-h-pipeline" class="dash-modal__h">1 · From sessions to fingerprints</h3>
                     <p>
                         In the lab, FullStory captures interaction bundles (pointer moves, scrolls, etc.). A web worker normalizes those events into short motion features, runs them through a trained sequence model, and emits a <strong>16-number vector</strong> (the fingerprint) when movement energy crosses a threshold and a challenge phase label is active.
                     </p>
                     <p>
-                        Each capture is written to the collector as JSON (for example in <code>warehouse.jsonl</code>) with fields such as <code>label</code>, <code>session_url</code>, and <code>fingerprint</code>. This dashboard loads that warehouse via <code>/summary</code>—it does not recompute embeddings; it <strong>visualizes what was stored</strong>.
+                        Each capture is stored in the collector database per org. This master view merges recent rows across tenants (see <strong>Internal admin · all orgs</strong> above). The dashboard does not recompute embeddings; it <strong>visualizes what was stored</strong>.
                     </p>
                 </section>
 
@@ -269,6 +277,17 @@
     </dialog>
 
     <script src="js/nexus-env.secrets.js"></script>
+    <script>
+        (function () {
+            try {
+                var tok = sessionStorage.getItem("nexus_internal_admin_token");
+                if (tok) window.NEXUS_LOCAL_MASTER_TOKEN = tok;
+            } catch (_e) {}
+            var u = new URL(window.location.href);
+            window.NEXUS_DASH_DIRECT_SUMMARY_URL = u.origin + "/internal/v1/master-summary";
+            window.NEXUS_DASH_MASTER_ORG_SCOPE = true;
+        })();
+    </script>
     <script src="js/nexus-env.js"></script>
     <script src="js/nexus-segmentation.js"></script>
     <script src="js/fingerprint-viz.js"></script>

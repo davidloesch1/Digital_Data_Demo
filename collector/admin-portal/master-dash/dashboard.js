@@ -1347,7 +1347,9 @@
                 setStatus(
                 false,
                 DIRECT_SUMMARY_URL
-                    ? "Cannot reach local master summary — is the collector running with ENABLE_LOCAL_MASTER_SUMMARY=1?"
+                    ? DIRECT_SUMMARY_URL.indexOf("/internal/v1/master-summary") !== -1
+                        ? "Cannot load master summary — unlock internal admin first (session token), or check collector logs."
+                        : "Cannot reach local master summary — is the collector running with ENABLE_LOCAL_MASTER_SUMMARY=1?"
                     : "Cannot reach warehouse API (try Log in for hosted console, or collector + publishable key for local)."
             );
         }

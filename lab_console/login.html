@@ -34,6 +34,27 @@
         .login-back { margin-top: 1.25rem; font-size: 0.85rem; }
         .login-back a { color: var(--console-primary); text-decoration: none; font-weight: 600; }
         .login-back a:hover { text-decoration: underline; }
+        .login-divider {
+            margin: 1.25rem 0 0.85rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--console-muted);
+        }
+        .login-google-btn {
+            display: block;
+            width: 100%;
+            text-align: center;
+            padding: 0.65rem;
+            border-radius: 8px;
+            border: 1px solid var(--console-border);
+            background: rgba(15, 23, 42, 0.85);
+            color: var(--console-text);
+            font-weight: 600;
+            font-size: 0.95rem;
+            text-decoration: none;
+            box-sizing: border-box;
+        }
+        .login-google-btn:hover { border-color: var(--console-primary); color: var(--console-primary); }
     </style>
 </head>
 <body class="console-page">
@@ -43,7 +64,12 @@
     <main class="login-main">
         <div class="login-card">
             <h1>Sign in</h1>
-            <p class="lead">Enter your organization slug and email. We’ll send a one-time link (via Resend). No password to remember.</p>
+            <p class="lead">
+                <strong>Google</strong> — use the same email an admin added under <em>Internal admin → Console login emails</em> for your org(s).
+                <strong>Magic link</strong> — enter your org slug; if that org has a console allowlist, your email must be on it. Resend must be configured on Vercel.
+            </p>
+            <a id="google-link" class="login-google-btn" href="/api/auth/google-start?next=%2Fdashboard.html">Continue with Google</a>
+            <p class="login-divider">or</p>
             <form id="login-form">
                 <label for="orgSlug">Organization slug</label>
                 <input id="orgSlug" name="orgSlug" type="text" autocomplete="organization" placeholder="e.g. acme-corp" required />
@@ -68,12 +94,22 @@
             server_config: "Server configuration error. Ask your admin.",
             bad_session: "Could not start session. Try again.",
             collector_unreachable: "Could not reach the API. Try again later.",
+            google_denied: "Google sign-in was cancelled.",
+            google_state: "Sign-in session expired or invalid. Try Google again.",
+            google_token: "Google token exchange failed. Check GOOGLE_CLIENT_ID / SECRET and redirect URI.",
+            google_email: "Google did not return a verified email.",
+            no_console_access:
+                "No org grants console access for that Google account. Ask an admin to add your email under Console login emails.",
         };
         msg.textContent = map[err] || "Something went wrong. Try again.";
     }
     var form = document.getElementById("login-form");
     var next = params.get("next") || "/dashboard.html";
     var safeNext = next.indexOf("/") === 0 && next.indexOf("//") !== 0 ? next : "/dashboard.html";
+    var gl = document.getElementById("google-link");
+    if (gl) {
+        gl.href = "/api/auth/google-start?next=" + encodeURIComponent(safeNext);
+    }
     form.addEventListener("submit", async function (e) {
         e.preventDefault();
         var orgSlug = document.getElementById("orgSlug").value.trim();
