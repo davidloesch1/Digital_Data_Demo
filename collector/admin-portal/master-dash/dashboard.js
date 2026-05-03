@@ -9,7 +9,22 @@
             : "";
     const MASTER_ORG_SCOPE =
         typeof window !== "undefined" && Boolean(window.NEXUS_DASH_MASTER_ORG_SCOPE);
+    /** Browser session only — same secret as collector INTERNAL_ADMIN_TOKEN for /internal/v1/*. */
+    const INTERNAL_ADMIN_TOKEN_STORAGE_KEY = "nexus_internal_admin_token";
     const M = typeof NexusDataModel !== "undefined" ? NexusDataModel : null;
+
+    function getMasterInternalAdminToken() {
+        if (typeof window === "undefined") return "";
+        var w =
+            window.NEXUS_LOCAL_MASTER_TOKEN != null ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim() : "";
+        if (w) return w;
+        try {
+            var s = sessionStorage.getItem(INTERNAL_ADMIN_TOKEN_STORAGE_KEY);
+            return s != null ? String(s).trim() : "";
+        } catch (_e) {
+            return "";
+        }
+    }
 
     /** Fixed order: cluster slot i always uses CLUSTER_COLORS[i % length]. */
     const CLUSTER_COLORS = [
@@ -445,10 +460,7 @@
         var url = NexusReverseSearch.buildSearchUrl({ internal: internal, baseUrl: base }, q);
         var headers = {};
         if (internal) {
-            var tok =
-                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
-                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
-                    : "";
+            var tok = getMasterInternalAdminToken();
             if (tok) headers.Authorization = "Bearer " + tok;
         } else {
             var pk =
@@ -1926,10 +1938,7 @@
     function fullstoryAuthHeaders() {
         var h = {};
         if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
-            var tok =
-                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
-                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
-                    : "";
+            var tok = getMasterInternalAdminToken();
             if (tok) h.Authorization = "Bearer " + tok;
         } else {
             var pk =
@@ -2036,10 +2045,7 @@
                 root = new URL(DIRECT_SUMMARY_URL).origin;
             } catch (_e) {}
             url = root + "/internal/v1/clusters";
-            var tok =
-                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
-                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
-                    : "";
+            var tok = getMasterInternalAdminToken();
             if (tok) headers.Authorization = "Bearer " + tok;
         } else {
             url = root + "/v1/clusters";
@@ -2181,10 +2187,7 @@
         var data = null;
         if (DIRECT_SUMMARY_URL) {
             var hdrs = {};
-            var masterTok =
-                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
-                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
-                    : "";
+            var masterTok = getMasterInternalAdminToken();
             if (masterTok) hdrs.Authorization = "Bearer " + masterTok;
             var sumUrl = appendQueryToUrl(DIRECT_SUMMARY_URL, dateQs);
             var directRes = await fetch(sumUrl, { headers: hdrs });
@@ -2398,10 +2401,7 @@
     function clusterAuthHeadersJson() {
         var headers = { "Content-Type": "application/json" };
         if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
-            var tok =
-                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
-                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
-                    : "";
+            var tok = getMasterInternalAdminToken();
             if (tok) headers.Authorization = "Bearer " + tok;
         } else {
             var pk =
@@ -2521,10 +2521,7 @@
         var url = NexusReverseSearch.buildSearchUrl({ internal: internal, baseUrl: base }, q);
         var headers = {};
         if (internal) {
-            var tok =
-                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
-                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
-                    : "";
+            var tok = getMasterInternalAdminToken();
             if (tok) headers.Authorization = "Bearer " + tok;
         } else {
             var pk =
@@ -2816,7 +2813,7 @@
                 false,
                 DIRECT_SUMMARY_URL
                     ? DIRECT_SUMMARY_URL.indexOf("/internal/v1/master-summary") !== -1
-                        ? "Cannot load master summary — unlock internal admin first (session token), or check collector logs."
+                        ? "Cannot load master summary — paste your collector INTERNAL_ADMIN_TOKEN under “Collector internal token” in the sidebar (saved in sessionStorage), or check Railway env / collector logs."
                         : "Cannot reach local master summary — is the collector running with ENABLE_LOCAL_MASTER_SUMMARY=1?"
                     : "Cannot reach warehouse API (try Log in for hosted console, or collector + publishable key for local)."
             );

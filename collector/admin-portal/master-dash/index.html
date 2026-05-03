@@ -72,6 +72,21 @@
             </div>
             <div class="label">Sessions &amp; DNA rows</div>
             <div id="session-list"></div>
+            <div class="dash-internal-token-panel" id="dash-internal-token-panel">
+                <div class="label">Collector internal token</div>
+                <p class="dash-internal-token-panel__hint">
+                    Same value as <code>INTERNAL_ADMIN_TOKEN</code> on the collector (Railway env). Saved only in this tab
+                    (<code>sessionStorage</code>).
+                </p>
+                <input
+                    type="password"
+                    id="dash-internal-token-input"
+                    class="dash-input dash-internal-token-panel__input"
+                    placeholder="Paste token, then Save"
+                    autocomplete="off"
+                />
+                <button type="button" class="btn-refresh" id="dash-internal-token-save">Save &amp; reload</button>
+            </div>
             <div class="dash-aside__footer">
                 <div id="dev-status" class="dash-status">Waiting for data…</div>
                 <button type="button" class="btn-refresh" id="btn-reload-page">Reload view</button>

@@ -887,6 +887,24 @@ main > h1 {
     color: var(--muted);
     margin: 0.5rem 0 0;
 }
+.dash-internal-token-panel {
+    margin-top: 0.75rem;
+    padding: 0.65rem 0.5rem;
+    border-radius: 8px;
+    border: 1px solid rgba(251, 146, 60, 0.35);
+    background: rgba(251, 146, 60, 0.06);
+}
+.dash-internal-token-panel__hint {
+    font-size: 0.72rem;
+    color: var(--muted);
+    line-height: 1.4;
+    margin: 0.35rem 0 0.5rem;
+}
+.dash-internal-token-panel__input {
+    width: 100%;
+    box-sizing: border-box;
+    margin-bottom: 0.45rem;
+}
 .dash-tag-heatmap {
     margin-top: 0.75rem;
     overflow-x: auto;
