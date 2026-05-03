@@ -789,25 +789,23 @@ function mountInternalAdminPortal(app) {
     const adminDir = path.join(__dirname, 'admin-portal');
     const adminIndex = path.join(adminDir, 'index.html');
     const masterDashDir = path.join(adminDir, 'master-dash');
-    const masterDashIndex = path.join(masterDashDir, 'index.html');
     /** Avoid 302 /internal/admin → /internal/admin/: proxies often normalize slashes the other way → redirect loops. */
     function sendAdminIndex(_req, res) {
         res.sendFile(adminIndex);
     }
     app.get('/internal/admin', sendAdminIndex);
     app.get('/internal/admin/', sendAdminIndex);
-    app.get('/internal/admin/master-dashboard', (_req, res) => {
-        res.sendFile(masterDashIndex, (err) => {
-            if (err) {
-                console.error('internal admin master-dashboard:', err.message);
-                res.status(500).type('text/plain').send('Master dashboard bundle missing');
-            }
-        });
+    /** Master dashboard HTML uses relative css/js paths; they only resolve if the document URL is under /master-dash/. */
+    app.get(['/internal/admin/master-dashboard', '/internal/admin/master-dashboard/'], (_req, res) => {
+        res.redirect(308, '/internal/admin/master-dash/');
     });
-    app.use('/internal/admin/master-dash', express.static(masterDashDir, { index: false }));
+    app.get('/internal/admin/master-dash', (_req, res) => {
+        res.redirect(308, '/internal/admin/master-dash/');
+    });
+    app.use('/internal/admin/master-dash', express.static(masterDashDir, { index: 'index.html' }));
     app.use('/internal/admin', express.static(adminDir, { index: false }));
     console.log(
-        'Collector: internal admin portal at GET /internal/admin, GET /internal/admin/master-dashboard (with or without trailing slash on /internal/admin)'
+        'Collector: internal admin portal at GET /internal/admin, GET /internal/admin/master-dash/ (legacy /internal/admin/master-dashboard redirects here)'
     );
 }
 
