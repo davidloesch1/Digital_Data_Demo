@@ -77,6 +77,49 @@
 
     applyFromStorage();
 
+    function collectorOriginForManifest() {
+        var base =
+            window.NEXUS_DASH_API || window.NEXUS_COLLECT_BASE || window.NEXUS_API_BASE || "";
+        base = String(base).trim().replace(/\/?$/, "");
+        if (!base) return "";
+        if (!/^https?:\/\//i.test(base)) {
+            base =
+                (/^(localhost|127\.0\.0\.1)(\:|\/|$)/i.test(base.replace(/^\/+/, ""))
+                    ? "http://"
+                    : "https://") + base.replace(/^\/+/, "");
+        }
+        return base;
+    }
+
+    async function mergeManifestFromCollector() {
+        var pk =
+            window.NEXUS_PUBLISHABLE_KEY && String(window.NEXUS_PUBLISHABLE_KEY).trim();
+        var uid = window.NEXUS_USER_KEY && String(window.NEXUS_USER_KEY).trim();
+        if (!pk || !uid) return;
+        var origin = collectorOriginForManifest();
+        if (!origin) return;
+        try {
+            var r = await fetch(
+                origin + "/v1/segmentation/manifest?visitor_id=" + encodeURIComponent(uid),
+                { headers: { Authorization: "Bearer " + pk } }
+            );
+            if (!r.ok) return;
+            var j = await r.json();
+            var extra = j.vars && typeof j.vars === "object" ? j.vars : {};
+            var s = readState();
+            var merged = Object.assign(
+                {},
+                normalizeFsVars(s && s.fsVars ? s.fsVars : {}),
+                normalizeFsVars(extra)
+            );
+            if (s && s.userKey) {
+                pushToFullStory(String(s.userKey).trim(), merged);
+            }
+        } catch (_e) {}
+    }
+
+    mergeManifestFromCollector();
+
     var pollTries = 0;
     var pollMax = 80;
     var pollMs = 250;
@@ -104,6 +147,7 @@
             writeState({ v: 1, userKey: uid, fsVars: vars });
             window.NEXUS_USER_KEY = uid;
             pushToFullStory(uid, vars);
+            mergeManifestFromCollector();
         },
         clear: function () {
             try {

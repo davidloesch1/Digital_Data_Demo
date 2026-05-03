@@ -87,6 +87,70 @@ async function ensureSchema(client) {
         CREATE INDEX IF NOT EXISTS idx_console_org_members_email
         ON console_org_members (lower(email));
     `);
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS behavior_clusters (
+            id UUID PRIMARY KEY,
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            description TEXT,
+            color TEXT,
+            centroid JSONB NOT NULL,
+            match_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.85,
+            filters JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+    `);
+    await client.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_behavior_clusters_org_name_lower
+        ON behavior_clusters (org_id, lower(name));
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_behavior_clusters_org ON behavior_clusters (org_id);
+    `);
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS behavior_cluster_tags (
+            id UUID PRIMARY KEY,
+            cluster_id UUID NOT NULL REFERENCES behavior_clusters (id) ON DELETE CASCADE,
+            tag_kind TEXT NOT NULL CHECK (tag_kind IN ('label_pattern', 'module', 'metric', 'note')),
+            value TEXT NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_behavior_cluster_tags_cluster ON behavior_cluster_tags (cluster_id);
+    `);
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS behavior_cohorts (
+            id UUID PRIMARY KEY,
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            cluster_id UUID REFERENCES behavior_clusters (id) ON DELETE SET NULL,
+            name TEXT NOT NULL,
+            visitor_keys TEXT[] NOT NULL DEFAULT '{}',
+            filters JSONB NOT NULL DEFAULT '{}'::jsonb,
+            snapshot_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            notes TEXT
+        );
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_behavior_cohorts_org ON behavior_cohorts (org_id);
+    `);
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS segmentation_assignments (
+            id UUID PRIMARY KEY,
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            visitor_key TEXT NOT NULL,
+            vars JSONB NOT NULL DEFAULT '{}'::jsonb,
+            source_cohort_id UUID REFERENCES behavior_cohorts (id) ON DELETE SET NULL,
+            expires_at TIMESTAMPTZ,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            UNIQUE (org_id, visitor_key)
+        );
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_segmentation_assignments_org_visitor
+        ON segmentation_assignments (org_id, visitor_key);
+    `);
 }
 
 /** Normalize email for console allowlist (lowercase, trim). */
@@ -166,13 +230,27 @@ async function insertBehaviorEvent(pool, orgIdUuid, payload) {
  * @param {number} limit
  * @returns {Promise<object[]>}
  */
-async function fetchRecentPayloads(pool, orgIdUuid, limit) {
+async function fetchRecentPayloads(pool, orgIdUuid, limit, since, until) {
+    const params = [orgIdUuid];
+    let cond = 'org_id = $1';
+    let p = 2;
+    if (since) {
+        cond += ` AND created_at >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND created_at <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    params.push(limit);
     const { rows } = await pool.query(
         `SELECT payload FROM behavior_events
-         WHERE org_id = $1
+         WHERE ${cond}
          ORDER BY created_at DESC
-         LIMIT $2`,
-        [orgIdUuid, limit]
+         LIMIT $${p}`,
+        params
     );
     return rows.map((r) => r.payload).reverse();
 }
@@ -184,14 +262,29 @@ async function fetchRecentPayloads(pool, orgIdUuid, limit) {
  * @param {number} limit
  * @returns {Promise<object[]>}
  */
-async function fetchRecentPayloadsAllOrgs(pool, limit) {
+async function fetchRecentPayloadsAllOrgs(pool, limit, since, until) {
+    const params = [];
+    let cond = '1=1';
+    let p = 1;
+    if (since) {
+        cond += ` AND be.created_at >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND be.created_at <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    params.push(limit);
     const { rows } = await pool.query(
         `SELECT be.payload, o.id AS org_id, o.slug AS org_slug
          FROM behavior_events be
          INNER JOIN organizations o ON o.id = be.org_id
+         WHERE ${cond}
          ORDER BY be.created_at DESC
-         LIMIT $1`,
-        [limit]
+         LIMIT $${p}`,
+        params
     );
     return rows
         .map((r) => {
@@ -404,6 +497,425 @@ async function revokePublishableKey(pool, pepper, rawKey) {
     return rowCount || 0;
 }
 
+function mapClusterRow(r) {
+    if (!r) return null;
+    return {
+        id: r.id,
+        org_id: r.org_id,
+        name: r.name,
+        description: r.description,
+        color: r.color,
+        centroid: r.centroid,
+        match_threshold: r.match_threshold != null ? Number(r.match_threshold) : 0.85,
+        filters: r.filters && typeof r.filters === 'object' ? r.filters : {},
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        org_slug: r.org_slug || undefined,
+        tags: Array.isArray(r.tags) ? r.tags : undefined,
+    };
+}
+
+/**
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ */
+async function listBehaviorClusters(pool, orgIdUuid) {
+    const { rows } = await pool.query(
+        `SELECT bc.*,
+         COALESCE(
+           (SELECT json_agg(json_build_object(
+             'id', t.id, 'tag_kind', t.tag_kind, 'value', t.value, 'created_at', t.created_at
+           ) ORDER BY t.created_at)
+            FROM behavior_cluster_tags t WHERE t.cluster_id = bc.id),
+           '[]'::json
+         ) AS tags
+         FROM behavior_clusters bc
+         WHERE bc.org_id = $1
+         ORDER BY bc.updated_at DESC`,
+        [orgIdUuid]
+    );
+    return rows.map((r) => {
+        const o = mapClusterRow(r);
+        let tags = [];
+        if (typeof r.tags === 'string') {
+            try {
+                tags = JSON.parse(r.tags);
+            } catch {
+                tags = [];
+            }
+        } else if (Array.isArray(r.tags)) {
+            tags = r.tags;
+        }
+        o.tags = tags;
+        return o;
+    });
+}
+
+/**
+ * All clusters with org slug (internal admin).
+ * @param {import('pg').Pool} pool
+ * @param {string | null} orgSlugFilter lower(trim) match or null for all
+ */
+async function listBehaviorClustersAllOrgs(pool, orgSlugFilter) {
+    const params = [];
+    let where = '';
+    if (orgSlugFilter && String(orgSlugFilter).trim() !== '') {
+        params.push(String(orgSlugFilter).trim().toLowerCase());
+        where = 'WHERE lower(o.slug) = $1';
+    }
+    const { rows } = await pool.query(
+        `SELECT bc.*, o.slug AS org_slug,
+         COALESCE(
+           (SELECT json_agg(json_build_object(
+             'id', t.id, 'tag_kind', t.tag_kind, 'value', t.value, 'created_at', t.created_at
+           ) ORDER BY t.created_at)
+            FROM behavior_cluster_tags t WHERE t.cluster_id = bc.id),
+           '[]'::json
+         ) AS tags
+         FROM behavior_clusters bc
+         INNER JOIN organizations o ON o.id = bc.org_id
+         ${where}
+         ORDER BY o.slug ASC, bc.name ASC`,
+        params
+    );
+    return rows.map((r) => {
+        const o = mapClusterRow(r);
+        let tags = [];
+        if (r.tags && typeof r.tags === 'string') {
+            try {
+                tags = JSON.parse(r.tags);
+            } catch {
+                tags = [];
+            }
+        } else if (Array.isArray(r.tags)) {
+            tags = r.tags;
+        }
+        o.tags = tags;
+        return o;
+    });
+}
+
+async function getBehaviorCluster(pool, orgIdUuid, clusterId) {
+    const { rows } = await pool.query(
+        `SELECT * FROM behavior_clusters WHERE id = $1 AND org_id = $2`,
+        [clusterId, orgIdUuid]
+    );
+    return rows[0] ? mapClusterRow(rows[0]) : null;
+}
+
+async function createBehaviorCluster(pool, orgIdUuid, body) {
+    const id = crypto.randomUUID();
+    const name = body && body.name != null ? String(body.name).trim() : '';
+    if (!name) throw new Error('name_required');
+    const centroid = body && body.centroid != null ? body.centroid : null;
+    if (!centroid) throw new Error('centroid_required');
+    const description = body && body.description != null ? String(body.description) : null;
+    const color = body && body.color != null ? String(body.color) : null;
+    const matchThreshold =
+        body && body.match_threshold != null ? Number(body.match_threshold) : 0.85;
+    const filters = body && body.filters && typeof body.filters === 'object' ? body.filters : {};
+    await pool.query(
+        `INSERT INTO behavior_clusters (id, org_id, name, description, color, centroid, match_threshold, filters)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::jsonb)`,
+        [
+            id,
+            orgIdUuid,
+            name,
+            description,
+            color,
+            JSON.stringify(centroid),
+            matchThreshold,
+            JSON.stringify(filters),
+        ]
+    );
+    return getBehaviorCluster(pool, orgIdUuid, id);
+}
+
+async function updateBehaviorCluster(pool, orgIdUuid, clusterId, body) {
+    const existing = await getBehaviorCluster(pool, orgIdUuid, clusterId);
+    if (!existing) return null;
+    const name = body && body.name != null ? String(body.name).trim() : existing.name;
+    const description =
+        body && body.description !== undefined ? body.description : existing.description;
+    const color = body && body.color !== undefined ? body.color : existing.color;
+    const centroid = body && body.centroid !== undefined ? body.centroid : existing.centroid;
+    const matchThreshold =
+        body && body.match_threshold !== undefined
+            ? Number(body.match_threshold)
+            : existing.match_threshold;
+    const filters =
+        body && body.filters !== undefined && typeof body.filters === 'object'
+            ? body.filters
+            : existing.filters;
+    await pool.query(
+        `UPDATE behavior_clusters SET
+         name = $1, description = $2, color = $3, centroid = $4::jsonb,
+         match_threshold = $5, filters = $6::jsonb, updated_at = now()
+         WHERE id = $7 AND org_id = $8`,
+        [
+            name,
+            description,
+            color,
+            JSON.stringify(centroid),
+            matchThreshold,
+            JSON.stringify(filters),
+            clusterId,
+            orgIdUuid,
+        ]
+    );
+    return getBehaviorCluster(pool, orgIdUuid, clusterId);
+}
+
+async function deleteBehaviorCluster(pool, orgIdUuid, clusterId) {
+    const { rowCount } = await pool.query(
+        `DELETE FROM behavior_clusters WHERE id = $1 AND org_id = $2`,
+        [clusterId, orgIdUuid]
+    );
+    return rowCount || 0;
+}
+
+async function addBehaviorClusterTag(pool, orgIdUuid, clusterId, tagKind, value) {
+    const chk = await pool.query(
+        `SELECT 1 FROM behavior_clusters WHERE id = $1 AND org_id = $2`,
+        [clusterId, orgIdUuid]
+    );
+    if (!chk.rows.length) return null;
+    const kind = ['label_pattern', 'module', 'metric', 'note'].includes(tagKind)
+        ? tagKind
+        : 'note';
+    const id = crypto.randomUUID();
+    const v = value != null ? String(value) : '';
+    await pool.query(
+        `INSERT INTO behavior_cluster_tags (id, cluster_id, tag_kind, value) VALUES ($1, $2, $3, $4)`,
+        [id, clusterId, kind, v]
+    );
+    return { id, cluster_id: clusterId, tag_kind: kind, value: v };
+}
+
+async function deleteBehaviorClusterTag(pool, orgIdUuid, tagId) {
+    const { rowCount } = await pool.query(
+        `DELETE FROM behavior_cluster_tags t USING behavior_clusters bc
+         WHERE t.id = $1 AND t.cluster_id = bc.id AND bc.org_id = $2`,
+        [tagId, orgIdUuid]
+    );
+    return rowCount || 0;
+}
+
+async function createBehaviorCohort(pool, orgIdUuid, body) {
+    const id = crypto.randomUUID();
+    const name = body && body.name != null ? String(body.name).trim() : '';
+    if (!name) throw new Error('name_required');
+    const clusterId = body && body.cluster_id != null ? body.cluster_id : null;
+    const visitorKeys = Array.isArray(body.visitor_keys)
+        ? body.visitor_keys.map((k) => String(k).trim()).filter(Boolean)
+        : [];
+    const filters = body && body.filters && typeof body.filters === 'object' ? body.filters : {};
+    const notes = body && body.notes != null ? String(body.notes) : null;
+    if (clusterId) {
+        const chk = await pool.query(
+            `SELECT 1 FROM behavior_clusters WHERE id = $1 AND org_id = $2`,
+            [clusterId, orgIdUuid]
+        );
+        if (!chk.rows.length) throw new Error('cluster_not_found');
+    }
+    await pool.query(
+        `INSERT INTO behavior_cohorts (id, org_id, cluster_id, name, visitor_keys, filters, notes)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7)`,
+        [id, orgIdUuid, clusterId, name, visitorKeys, JSON.stringify(filters), notes]
+    );
+    return getBehaviorCohort(pool, orgIdUuid, id);
+}
+
+async function getBehaviorCohort(pool, orgIdUuid, cohortId) {
+    const { rows } = await pool.query(
+        `SELECT * FROM behavior_cohorts WHERE id = $1 AND org_id = $2`,
+        [cohortId, orgIdUuid]
+    );
+    if (!rows[0]) return null;
+    const r = rows[0];
+    return {
+        id: r.id,
+        org_id: r.org_id,
+        cluster_id: r.cluster_id,
+        name: r.name,
+        visitor_keys: r.visitor_keys || [],
+        filters: r.filters && typeof r.filters === 'object' ? r.filters : {},
+        snapshot_at: r.snapshot_at,
+        notes: r.notes,
+    };
+}
+
+async function listBehaviorCohorts(pool, orgIdUuid) {
+    const { rows } = await pool.query(
+        `SELECT * FROM behavior_cohorts WHERE org_id = $1 ORDER BY snapshot_at DESC`,
+        [orgIdUuid]
+    );
+    return rows.map((r) => ({
+        id: r.id,
+        org_id: r.org_id,
+        cluster_id: r.cluster_id,
+        name: r.name,
+        visitor_keys: r.visitor_keys || [],
+        filters: r.filters && typeof r.filters === 'object' ? r.filters : {},
+        snapshot_at: r.snapshot_at,
+        notes: r.notes,
+    }));
+}
+
+/**
+ * Merge vars into segmentation_assignments for each visitor in cohort.
+ */
+async function applyCohortSegmentationVars(pool, orgIdUuid, cohortId, vars) {
+    const cohort = await getBehaviorCohort(pool, orgIdUuid, cohortId);
+    if (!cohort) return { updated: 0 };
+    if (!vars || typeof vars !== 'object') throw new Error('vars_required');
+    const keys = cohort.visitor_keys || [];
+    let n = 0;
+    for (let i = 0; i < keys.length; i++) {
+        const vk = keys[i];
+        const id = crypto.randomUUID();
+        await pool.query(
+            `INSERT INTO segmentation_assignments (id, org_id, visitor_key, vars, source_cohort_id, updated_at)
+             VALUES ($1, $2, $3, $4::jsonb, $5, now())
+             ON CONFLICT (org_id, visitor_key) DO UPDATE SET
+               vars = COALESCE(segmentation_assignments.vars, '{}'::jsonb) || EXCLUDED.vars,
+               source_cohort_id = COALESCE(EXCLUDED.source_cohort_id, segmentation_assignments.source_cohort_id),
+               updated_at = now()`,
+            [id, orgIdUuid, vk, JSON.stringify(vars), cohortId]
+        );
+        n++;
+    }
+    return { updated: n };
+}
+
+async function getSegmentationManifestForVisitor(pool, orgIdUuid, visitorKey) {
+    const vk = String(visitorKey || '').trim();
+    if (!vk) return {};
+    const { rows } = await pool.query(
+        `SELECT vars, expires_at FROM segmentation_assignments
+         WHERE org_id = $1 AND visitor_key = $2
+         AND (expires_at IS NULL OR expires_at > now())`,
+        [orgIdUuid, vk]
+    );
+    if (!rows.length) return {};
+    const vars = rows[0].vars && typeof rows[0].vars === 'object' ? { ...rows[0].vars } : {};
+    return vars;
+}
+
+/**
+ * @param {string | null} sessionIdSubstr — substring to match in payload.session_url
+ * @param {string | null} visitorKey — exact nexus_user_key
+ */
+async function searchBehaviorEvents(pool, orgIdUuid, opts) {
+    const limit = Math.max(1, Math.min(5000, Number(opts.limit) || 500));
+    const since = opts.since || null;
+    const until = opts.until || null;
+    const sessionIdSubstr = opts.session_id_substr ? String(opts.session_id_substr).trim() : null;
+    const visitorKey = opts.visitor_key ? String(opts.visitor_key).trim() : null;
+    if (!sessionIdSubstr && !visitorKey) {
+        throw new Error('session_or_visitor_required');
+    }
+    const params = [orgIdUuid];
+    let p = 2;
+    let cond = 'be.org_id = $1';
+    if (since) {
+        cond += ` AND be.created_at >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND be.created_at <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    if (sessionIdSubstr && visitorKey) {
+        cond += ` AND (be.payload->>'session_url' ILIKE $${p} OR be.payload->>'nexus_user_key' = $${p + 1})`;
+        params.push('%' + sessionIdSubstr.replace(/%/g, '\\%') + '%');
+        params.push(visitorKey);
+        p += 2;
+    } else if (sessionIdSubstr) {
+        cond += ` AND be.payload->>'session_url' ILIKE $${p}`;
+        params.push('%' + sessionIdSubstr.replace(/%/g, '\\%') + '%');
+        p++;
+    } else {
+        cond += ` AND be.payload->>'nexus_user_key' = $${p}`;
+        params.push(visitorKey);
+        p++;
+    }
+    params.push(limit);
+    const { rows } = await pool.query(
+        `SELECT be.payload FROM behavior_events be
+         WHERE ${cond}
+         ORDER BY be.created_at DESC
+         LIMIT $${p}`,
+        params
+    );
+    return rows.map((r) => r.payload).reverse();
+}
+
+/** Cross-org search for internal admin; adds _master_org_id/slug to payloads. */
+async function searchBehaviorEventsAllOrgs(pool, opts) {
+    const limit = Math.max(1, Math.min(5000, Number(opts.limit) || 500));
+    const since = opts.since || null;
+    const until = opts.until || null;
+    const sessionIdSubstr = opts.session_id_substr ? String(opts.session_id_substr).trim() : null;
+    const visitorKey = opts.visitor_key ? String(opts.visitor_key).trim() : null;
+    const orgSlug = opts.org_slug ? String(opts.org_slug).trim().toLowerCase() : null;
+    if (!sessionIdSubstr && !visitorKey) {
+        throw new Error('session_or_visitor_required');
+    }
+    const params = [];
+    let p = 1;
+    const join = 'FROM behavior_events be INNER JOIN organizations o ON o.id = be.org_id';
+    let cond = '1=1';
+    if (orgSlug) {
+        cond += ` AND lower(o.slug) = $${p}`;
+        params.push(orgSlug);
+        p++;
+    }
+    if (since) {
+        cond += ` AND be.created_at >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND be.created_at <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    if (sessionIdSubstr && visitorKey) {
+        cond += ` AND (be.payload->>'session_url' ILIKE $${p} OR be.payload->>'nexus_user_key' = $${p + 1})`;
+        params.push('%' + sessionIdSubstr.replace(/%/g, '\\%') + '%');
+        params.push(visitorKey);
+        p += 2;
+    } else if (sessionIdSubstr) {
+        cond += ` AND be.payload->>'session_url' ILIKE $${p}`;
+        params.push('%' + sessionIdSubstr.replace(/%/g, '\\%') + '%');
+        p++;
+    } else {
+        cond += ` AND be.payload->>'nexus_user_key' = $${p}`;
+        params.push(visitorKey);
+        p++;
+    }
+    params.push(limit);
+    const { rows } = await pool.query(
+        `SELECT be.payload, o.id AS org_id, o.slug AS org_slug
+         ${join}
+         WHERE ${cond}
+         ORDER BY be.created_at DESC
+         LIMIT $${p}`,
+        params
+    );
+    return rows
+        .map((r) => {
+            const pl = r.payload && typeof r.payload === 'object' ? { ...r.payload } : {};
+            pl._master_org_id = r.org_id;
+            pl._master_org_slug = r.org_slug;
+            return pl;
+        })
+        .reverse();
+}
+
 module.exports = {
     KEY_PREFIX_LEN,
     hashPublishableKey,
@@ -428,4 +940,19 @@ module.exports = {
     addConsoleMember,
     removeConsoleMember,
     listOrgAccessForConsoleEmail,
+    listBehaviorClusters,
+    listBehaviorClustersAllOrgs,
+    getBehaviorCluster,
+    createBehaviorCluster,
+    updateBehaviorCluster,
+    deleteBehaviorCluster,
+    addBehaviorClusterTag,
+    deleteBehaviorClusterTag,
+    createBehaviorCohort,
+    getBehaviorCohort,
+    listBehaviorCohorts,
+    applyCohortSegmentationVars,
+    getSegmentationManifestForVisitor,
+    searchBehaviorEvents,
+    searchBehaviorEventsAllOrgs,
 };

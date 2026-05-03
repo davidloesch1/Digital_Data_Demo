@@ -85,6 +85,56 @@
                 </div>
             </div>
 
+            <div class="card card--personas dash-extra-card">
+                <div class="label">Personas</div>
+                <div id="dash-persona-strip" class="dash-persona-strip" aria-live="polite"></div>
+                <div id="dash-tag-heatmap" class="dash-tag-heatmap"></div>
+            </div>
+
+            <div class="card card--filters dash-extra-card">
+                <h3 class="card-heading">Date range &amp; reverse search</h3>
+                <p class="card-sub">Optional <code>since</code>/<code>until</code> apply to the warehouse JSON load. Reverse search queries indexed rows directly.</p>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label">Since<br /><input type="datetime-local" id="dash-filter-since" class="dash-input" /></label>
+                    <label class="dash-filter-label">Until<br /><input type="datetime-local" id="dash-filter-until" class="dash-input" /></label>
+                    <button type="button" class="btn-refresh" id="dash-filter-apply">Apply range</button>
+                </div>
+                <div class="dash-filter-row">
+                    <select id="dash-reverse-mode" class="dash-input" aria-label="Search mode">
+                        <option value="session">FullStory replay URL</option>
+                        <option value="visitor">Visitor id (nexus_user_key)</option>
+                    </select>
+                    <input type="text" id="dash-reverse-session-url" class="dash-input dash-input--grow" placeholder="https://… full replay URL" />
+                    <input type="text" id="dash-reverse-visitor" class="dash-input dash-input--grow" placeholder="Visitor key" hidden />
+                    <button type="button" class="btn-refresh" id="btn-dash-reverse-search">Search events</button>
+                </div>
+            </div>
+
+            <div class="card card--prototype dash-extra-card" id="dash-prototype-card">
+                <h3 class="card-heading">Cluster prototypes &amp; cohorts</h3>
+                <p class="card-sub">Save a <strong>named prototype</strong> from a k-means slot (16-D centroid). Snapshot visitors into a cohort and push segmentation vars for the SDK manifest.</p>
+                <div class="dash-filter-row" id="dash-prototype-org-row" hidden>
+                    <label class="dash-filter-label">Org (master)<br /><select id="dash-prototype-org" class="dash-input"></select></label>
+                </div>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label">Name<br /><input type="text" id="dash-prototype-name" class="dash-input" placeholder="e.g. Hesitant browser" /></label>
+                    <label class="dash-filter-label">Color<br /><input type="color" id="dash-prototype-color" value="#6366f1" /></label>
+                    <label class="dash-filter-label">K-means slot<br /><select id="dash-prototype-slot" class="dash-input"></select></label>
+                    <button type="button" class="btn-refresh" id="btn-dash-save-prototype">Save prototype</button>
+                </div>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label">Cohort label<br /><input type="text" id="dash-cohort-name" class="dash-input" placeholder="Study cell A" /></label>
+                    <label class="dash-filter-label">Prototype<br /><select id="dash-cohort-cluster-select" class="dash-input dash-input--grow"></select></label>
+                    <label class="dash-filter-label">Visitor slot<br /><select id="dash-cohort-slot" class="dash-input"></select></label>
+                    <button type="button" class="btn-refresh" id="btn-dash-snapshot-cohort">Snapshot cohort</button>
+                </div>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label">Cohort id<br /><input type="text" id="dash-segment-cohort-id" class="dash-input" placeholder="UUID from snapshot response" /></label>
+                    <label class="dash-filter-label">Vars (JSON)<br /><input type="text" id="dash-seg-vars" class="dash-input dash-input--grow" placeholder='{"nexus_archetype":"Explorer"}' /></label>
+                    <button type="button" class="btn-refresh" id="btn-dash-apply-segmentation">Apply to cohort visitors</button>
+                </div>
+            </div>
+
             <div class="main-grid">
                 <div class="card card--chart">
                     <div class="card-header">
@@ -272,6 +322,9 @@
     <script src="js/nexus-env.js"></script>
     <script src="js/nexus-segmentation.js"></script>
     <script src="js/fingerprint-viz.js"></script>
+    <script src="data-cards/cluster-prototypes.js"></script>
+    <script src="data-cards/behavior-summary.js"></script>
+    <script src="data-cards/reverse-search.js"></script>
     <script src="data-cards/data-model.js"></script>
     <script src="data-cards/radar-archetype.js"></script>
     <script src="dashboard.js"></script>

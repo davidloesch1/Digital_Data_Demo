@@ -8,6 +8,7 @@ const path = require('path');
 const readline = require('readline');
 const tenantDbApi = require('./tenant-db.js');
 const { mountConsoleBffRoutes } = require('./console-bff.js');
+const { mountV1DashboardRoutes, addInternalDashboardRoutes } = require('./dashboard-routes.js');
 
 /** @type {{ pool: import('pg').Pool; pepper: string } | null} */
 let tenantContext = null;
@@ -193,6 +194,14 @@ function parseSummaryLimit(req) {
     const n = parseInt(String(q), 10);
     if (!Number.isFinite(n) || n < 1) return SUMMARY_MAX_LINES;
     return Math.min(n, SUMMARY_QUERY_LIMIT_CAP);
+}
+
+function parseOptionalIsoDate(req, key) {
+    const q = req.query && req.query[key];
+    if (q === undefined || q === null || String(q).trim() === '') return null;
+    const d = new Date(String(q));
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString();
 }
 
 function extractPublishableKey(req) {
@@ -442,8 +451,16 @@ app.get('/v1/summary', async (req, res) => {
         return res.status(401).json({ error: 'Invalid or revoked publishable key' });
     }
     const limit = parseSummaryLimit(req);
+    const since = parseOptionalIsoDate(req, 'since');
+    const until = parseOptionalIsoDate(req, 'until');
     try {
-        const data = await tenantDbApi.fetchRecentPayloads(tenantContext.pool, resolved.orgId, limit);
+        const data = await tenantDbApi.fetchRecentPayloads(
+            tenantContext.pool,
+            resolved.orgId,
+            limit,
+            since,
+            until
+        );
         res.setHeader('X-Summary-Line-Limit', String(limit));
         res.setHeader('X-Summary-Lines-Returned', String(data.length));
         res.setHeader('X-Org-Slug', resolved.orgSlug);
@@ -503,6 +520,8 @@ app.post('/v1/discard', async (req, res) => {
     res.status(200).json({ ok: true, discarded: removed });
 });
 
+mountV1DashboardRoutes(app, { tenantContext, tenantDbApi, extractPublishableKey });
+
 /** POST /internal/v1/orgs, POST /internal/v1/keys/revoke — bearer INTERNAL_ADMIN_TOKEN */
 function mountInternalAdminRoutes(app) {
     const expected = process.env.INTERNAL_ADMIN_TOKEN;
@@ -538,6 +557,8 @@ function mountInternalAdminRoutes(app) {
         }
         next();
     });
+
+    addInternalDashboardRoutes(router, { tenantContext, tenantDbApi });
 
     router.get('/orgs', async (_req, res) => {
         try {
@@ -657,7 +678,14 @@ function mountInternalAdminRoutes(app) {
     router.get('/master-summary', async (req, res) => {
         const limit = parseSummaryLimit(req);
         try {
-            const data = await tenantDbApi.fetchRecentPayloadsAllOrgs(tenantContext.pool, limit);
+            const since = parseOptionalIsoDate(req, 'since');
+            const until = parseOptionalIsoDate(req, 'until');
+            const data = await tenantDbApi.fetchRecentPayloadsAllOrgs(
+                tenantContext.pool,
+                limit,
+                since,
+                until
+            );
             res.setHeader('X-Summary-Line-Limit', String(limit));
             res.setHeader('X-Summary-Lines-Returned', String(data.length));
             res.setHeader('X-Master-Summary', 'all-orgs');
@@ -715,8 +743,15 @@ function mountLocalMasterSummary(app) {
             });
         }
         const limit = parseSummaryLimit(req);
+        const since = parseOptionalIsoDate(req, 'since');
+        const until = parseOptionalIsoDate(req, 'until');
         try {
-            const data = await tenantDbApi.fetchRecentPayloadsAllOrgs(tenantContext.pool, limit);
+            const data = await tenantDbApi.fetchRecentPayloadsAllOrgs(
+                tenantContext.pool,
+                limit,
+                since,
+                until
+            );
             res.setHeader('X-Summary-Line-Limit', String(limit));
             res.setHeader('X-Summary-Lines-Returned', String(data.length));
             res.setHeader('X-Master-Summary', 'all-orgs');

@@ -287,8 +287,22 @@ function mountConsoleBffRoutes(app, ctx) {
             return res.status(401).json({ error: 'Invalid or expired session' });
         }
         const limit = ctx.parseSummaryLimit(req);
+        function parseIso(key) {
+            const q = req.query && req.query[key];
+            if (q === undefined || q === null || String(q).trim() === '') return null;
+            const d = new Date(String(q));
+            return Number.isNaN(d.getTime()) ? null : d.toISOString();
+        }
+        const since = parseIso('since');
+        const until = parseIso('until');
         try {
-            const data = await ctx.tenantDbApi.fetchRecentPayloads(tenantContext.pool, claims.org_id, limit);
+            const data = await ctx.tenantDbApi.fetchRecentPayloads(
+                tenantContext.pool,
+                claims.org_id,
+                limit,
+                since,
+                until
+            );
             res.setHeader('X-Summary-Line-Limit', String(limit));
             res.setHeader('X-Summary-Lines-Returned', String(data.length));
             if (claims.org_slug) res.setHeader('X-Org-Slug', String(claims.org_slug));

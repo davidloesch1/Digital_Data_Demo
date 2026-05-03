@@ -40,6 +40,10 @@
     let selectedUserKey = null;
     let lastWarehouseRows = [];
     let dimensionCharts = [];
+    /** Saved cluster prototypes from GET /v1/clusters or GET /internal/v1/clusters */
+    let behaviorPrototypes = [];
+    /** Last k-means result (same order as chart). */
+    let lastClusterResult = { clusters: [], centroids: [] };
 
     function $(id) {
         return document.getElementById(id);
@@ -877,10 +881,12 @@
         if (!datasets || !datasets.length) return;
         datasets.forEach(function (ds) {
             var idx = typeof ds.clusterSlotIndex === "number" ? ds.clusterSlotIndex : 0;
+            var cl = lastClusterResult.clusters[idx] || [];
+            var proto = dominantProtoLabel(cl);
             var s = document.createElement("span");
             s.className = "cluster-swatch";
             s.style.backgroundColor = ds.backgroundColor;
-            s.title = "Cluster " + (idx + 1);
+            s.title = proto ? proto + " · slot " + (idx + 1) : "Cluster " + (idx + 1);
             host.appendChild(s);
         });
     }
@@ -908,9 +914,13 @@
             return;
         }
         var items = lastKineticPoints.map(function (p) {
+            var col =
+                p.prototypeMatch && p.prototypeMatch.color
+                    ? p.prototypeMatch.color
+                    : CLUSTER_COLORS[p.clusterIndex % CLUSTER_COLORS.length] || "#6366f1";
             return {
                 vector: p.fp,
-                color: CLUSTER_COLORS[p.clusterIndex % CLUSTER_COLORS.length] || "#6366f1",
+                color: col,
                 opacity: 0.42,
                 sid: p.sid,
                 userKey: p.userKey || null,
@@ -929,14 +939,21 @@
 
         var datasets = clusters
             .map(function (cluster, i) {
+                var baseCol = CLUSTER_COLORS[i % CLUSTER_COLORS.length];
+                var ptBg = cluster.map(function (p) {
+                    return p.prototypeMatch && p.prototypeMatch.color
+                        ? p.prototypeMatch.color
+                        : baseCol;
+                });
                 return {
                     label: "",
                     clusterSlotIndex: i,
                     data: cluster,
-                    backgroundColor: CLUSTER_COLORS[i % CLUSTER_COLORS.length],
+                    backgroundColor: baseCol,
+                    pointBackgroundColor: ptBg,
                     pointRadius: 6,
                     hoverRadius: 9,
-                    pointHoverBackgroundColor: CLUSTER_COLORS[i % CLUSTER_COLORS.length],
+                    pointHoverBackgroundColor: ptBg,
                 };
             })
             .filter(function (ds) {
@@ -1027,6 +1044,24 @@
                 },
                 plugins: {
                     legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function (ctx) {
+                                var raw = ctx.raw;
+                                if (!raw) return "";
+                                if (raw.prototypeMatch && raw.prototypeMatch.name) {
+                                    return (
+                                        raw.prototypeMatch.name +
+                                        " · sim " +
+                                        (raw.prototypeMatch.similarity != null
+                                            ? raw.prototypeMatch.similarity.toFixed(2)
+                                            : "?")
+                                    );
+                                }
+                                return "Cluster " + ((raw.clusterIndex || 0) + 1);
+                            },
+                        },
+                    },
                 },
             },
         });
@@ -1175,179 +1210,668 @@
         return pct + "% kinetic";
     }
 
-    async function fetchData() {
+    function getDateFilterQueryString() {
+        var sinceEl = $("dash-filter-since");
+        var untilEl = $("dash-filter-until");
+        var parts = [];
+        if (sinceEl && sinceEl.value) parts.push("since=" + encodeURIComponent(sinceEl.value));
+        if (untilEl && untilEl.value) parts.push("until=" + encodeURIComponent(untilEl.value));
+        return parts.length ? "&" + parts.join("&") : "";
+    }
+
+    function appendQueryToUrl(baseUrl, extraQs) {
+        if (!extraQs) return baseUrl;
+        return baseUrl + (baseUrl.indexOf("?") >= 0 ? "" : "?") + extraQs.replace(/^&/, "");
+    }
+
+    async function fetchBehaviorPrototypesList() {
+        behaviorPrototypes = [];
+        var root = API_BASE.replace(/\/?$/, "");
+        var url;
+        var headers = {};
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            try {
+                root = new URL(DIRECT_SUMMARY_URL).origin;
+            } catch (_e) {}
+            url = root + "/internal/v1/clusters";
+            var tok =
+                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
+                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
+                    : "";
+            if (tok) headers.Authorization = "Bearer " + tok;
+        } else {
+            url = root + "/v1/clusters";
+            var pk =
+                typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+                    ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+                    : "";
+            if (pk) headers.Authorization = "Bearer " + pk;
+        }
+        if (!headers.Authorization) return;
         try {
-            var data = null;
-            if (DIRECT_SUMMARY_URL) {
-                var hdrs = {};
-                var masterTok =
-                    typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
-                        ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
-                        : "";
-                if (masterTok) hdrs.Authorization = "Bearer " + masterTok;
-                var directRes = await fetch(DIRECT_SUMMARY_URL, { headers: hdrs });
-                if (!directRes.ok) throw new Error("HTTP " + directRes.status);
-                data = await directRes.json();
-            } else {
-                var pr = await fetch("/api/summary", { credentials: "same-origin" });
-                if (pr.status === 401) {
-                    var pkGate =
-                        typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
-                            ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
-                            : "";
-                    if (!pkGate) {
-                        window.location.href =
-                            "/login.html?next=" +
-                            encodeURIComponent(
-                                (window.location.pathname || "/dashboard.html") + (window.location.search || "")
-                            );
-                        return;
-                    }
-                    /* Vercel build injected nx_pub_: load warehouse via collector CORS (no magic-link session). */
-                }
-                if (pr.ok) {
-                    var pct = pr.headers.get("content-type") || "";
-                    if (pct.indexOf("application/json") !== -1) {
-                        data = await pr.json();
-                    }
-                }
+            var r = await fetch(url, { headers: headers });
+            if (!r.ok) return;
+            var j = await r.json();
+            behaviorPrototypes = j.clusters || [];
+            populatePrototypeClusterSelect();
+        } catch (e) {
+            console.warn("fetchBehaviorPrototypesList:", e);
+        }
+    }
+
+    function populatePrototypeClusterSelect() {
+        var sel = $("dash-cohort-cluster-select");
+        if (!sel) return;
+        var cur = sel.value;
+        sel.innerHTML = "<option value=''>— pick saved prototype —</option>";
+        behaviorPrototypes.forEach(function (p) {
+            var o = document.createElement("option");
+            o.value = p.id;
+            o.textContent =
+                (p.name || "Cluster") + (p.org_slug ? " · " + p.org_slug : "");
+            sel.appendChild(o);
+        });
+        if (cur) {
+            sel.value = cur;
+        }
+    }
+
+    function visitorKeysFromCluster(cl) {
+        var k = {};
+        var i;
+        for (i = 0; i < (cl || []).length; i++) {
+            var p = cl[i];
+            var uk = p.userKey;
+            if (!uk && p.original && p.original.nexus_user_key) {
+                uk = String(p.original.nexus_user_key).trim();
             }
-            if (data === null && !DIRECT_SUMMARY_URL) {
-                var summaryPath =
-                    (typeof window !== "undefined" && window.NEXUS_SUMMARY_PATH) || "/summary";
-                var url = API_BASE.replace(/\/?$/, "") + summaryPath;
-                var pk =
+            if (uk) k[String(uk).trim()] = 1;
+        }
+        return Object.keys(k);
+    }
+
+    async function snapshotCohortFromUi() {
+        var cid = $("dash-cohort-cluster-select") && $("dash-cohort-cluster-select").value;
+        var nameEl = $("dash-cohort-name");
+        var name = nameEl ? String(nameEl.value || "").trim() : "";
+        var slotEl = $("dash-cohort-slot");
+        var slotNum = slotEl ? parseInt(slotEl.value, 10) : 1;
+        var slot = slotNum - 1;
+        if (!cid || !name) {
+            alert("Select a saved prototype and enter a cohort name.");
+            return;
+        }
+        var cl = lastClusterResult.clusters[slot] || [];
+        var vkeys = visitorKeysFromCluster(cl);
+        if (!vkeys.length) {
+            alert(
+                "No visitor keys in that slot — capture nexus_user_key or use Cloud points → Per visitor."
+            );
+            return;
+        }
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1 && !getMasterOrgSlugForSave()) {
+            alert("Select organization (master).");
+            return;
+        }
+        var url = clusterApiPostUrl("/clusters/" + encodeURIComponent(cid) + "/snapshot-cohort");
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            url += "?org_slug=" + encodeURIComponent(getMasterOrgSlugForSave());
+        }
+        try {
+            var res = await fetch(url, {
+                method: "POST",
+                headers: clusterAuthHeadersJson(),
+                body: JSON.stringify({ name: name, visitor_keys: vkeys, filters: {} }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            var j = await res.json();
+            var cidOut = j.cohort && j.cohort.id ? j.cohort.id : "";
+            if (cidOut && $("dash-segment-cohort-id")) $("dash-segment-cohort-id").value = cidOut;
+            alert("Snapshot saved. Cohort id: " + (cidOut || "(see response)"));
+        } catch (e) {
+            console.error(e);
+            alert("Snapshot failed: " + (e && e.message ? e.message : e));
+        }
+    }
+
+    async function applySegmentationFromUi() {
+        var cid = $("dash-segment-cohort-id") && String($("dash-segment-cohort-id").value || "").trim();
+        var raw = $("dash-seg-vars") && String($("dash-seg-vars").value || "").trim();
+        if (!cid || !raw) {
+            alert("Enter cohort id and JSON vars.");
+            return;
+        }
+        var vars;
+        try {
+            vars = JSON.parse(raw);
+        } catch (_e) {
+            alert("Invalid JSON for vars.");
+            return;
+        }
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1 && !getMasterOrgSlugForSave()) {
+            alert("Select organization (master).");
+            return;
+        }
+        var url = clusterApiPostUrl("/cohorts/" + encodeURIComponent(cid) + "/segmentation");
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            url += "?org_slug=" + encodeURIComponent(getMasterOrgSlugForSave());
+        }
+        try {
+            var res = await fetch(url, {
+                method: "POST",
+                headers: clusterAuthHeadersJson(),
+                body: JSON.stringify({ vars: vars }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            var j = await res.json();
+            alert("Applied segmentation vars to " + (j.updated != null ? j.updated : "?") + " visitors.");
+        } catch (e) {
+            console.error(e);
+            alert("Failed: " + (e && e.message ? e.message : e));
+        }
+    }
+
+    /**
+     * Load warehouse rows (same shape as GET /v1/summary).
+     */
+    async function fetchSummaryPayload() {
+        var dateQs = getDateFilterQueryString();
+        var data = null;
+        if (DIRECT_SUMMARY_URL) {
+            var hdrs = {};
+            var masterTok =
+                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
+                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
+                    : "";
+            if (masterTok) hdrs.Authorization = "Bearer " + masterTok;
+            var sumUrl = appendQueryToUrl(DIRECT_SUMMARY_URL, dateQs);
+            var directRes = await fetch(sumUrl, { headers: hdrs });
+            if (!directRes.ok) throw new Error("HTTP " + directRes.status);
+            data = await directRes.json();
+        } else {
+            var apiQs = dateQs ? "?" + dateQs.replace(/^&/, "") : "";
+            var pr = await fetch("/api/summary" + apiQs, {
+                credentials: "same-origin",
+            });
+            if (pr.status === 401) {
+                var pkGate =
                     typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
                         ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
                         : "";
-                var fetchOpts = {};
-                if (pk) fetchOpts.headers = { Authorization: "Bearer " + pk };
-                var response = await fetch(url, fetchOpts);
-                if (!response.ok) throw new Error("HTTP " + response.status);
-                data = await response.json();
+                if (!pkGate) {
+                    window.location.href =
+                        "/login.html?next=" +
+                        encodeURIComponent(
+                            (window.location.pathname || "/dashboard.html") + (window.location.search || "")
+                        );
+                    return null;
+                }
             }
+            if (pr.ok) {
+                var pct = pr.headers.get("content-type") || "";
+                if (pct.indexOf("application/json") !== -1) {
+                    data = await pr.json();
+                }
+            }
+        }
+        if (data === null && !DIRECT_SUMMARY_URL) {
+            var summaryPath =
+                (typeof window !== "undefined" && window.NEXUS_SUMMARY_PATH) || "/summary";
+            var sumQs = dateQs ? "?" + dateQs.replace(/^&/, "") : "";
+            var url = API_BASE.replace(/\/?$/, "") + summaryPath + sumQs;
+            var pk =
+                typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+                    ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+                    : "";
+            var fetchOpts = {};
+            if (pk) fetchOpts.headers = { Authorization: "Bearer " + pk };
+            var response = await fetch(url, fetchOpts);
+            if (!response.ok) throw new Error("HTTP " + response.status);
+            data = await response.json();
+        }
+        return data;
+    }
 
-            if (!data || !data.length) {
-                globalSessions = {};
-                globalCentroids = [];
-                lastKineticPoints = [];
-                lastWarehouseRows = [];
-                $("stat-kinetic").textContent = "0";
-                $("stat-clusters").textContent = "0";
-                $("stat-sessions").textContent = "0";
-                $("stat-integrity").textContent = "—";
-                clearFullStoryMomentUI();
-                renderSessionList();
-                renderCloud({ clusters: [] }, { x: "PC1", y: "PC2" }, null);
-                renderParallelPanel();
-                renderDimensionCharts([]);
-                var cap = $("pca-caption");
-                if (cap) cap.textContent = "";
-                setStatus(true, "Warehouse reachable · empty");
+    function enrichKineticPrototypes() {
+        if (!NexusClusterPrototypes || !behaviorPrototypes.length || !lastKineticPoints.length) {
+            lastKineticPoints.forEach(function (p) {
+                p.prototypeMatch = null;
+            });
+            return;
+        }
+        var mf = getSelectedModuleFilter();
+        NexusClusterPrototypes.enrichPoints(lastKineticPoints, behaviorPrototypes, {
+            moduleFilter: mf,
+            k: getDesiredClusterCount(),
+        });
+    }
+
+    function dominantProtoLabel(clusterPoints) {
+        var counts = {};
+        var i;
+        for (i = 0; i < clusterPoints.length; i++) {
+            var p = clusterPoints[i];
+            if (p.prototypeMatch && p.prototypeMatch.name) {
+                var n = p.prototypeMatch.name;
+                counts[n] = (counts[n] || 0) + 1;
+            }
+        }
+        var best = null;
+        var bn = 0;
+        Object.keys(counts).forEach(function (k) {
+            if (counts[k] > bn) {
+                bn = counts[k];
+                best = k;
+            }
+        });
+        return best;
+    }
+
+    function renderPersonaStrip() {
+        var host = $("dash-persona-strip");
+        if (!host || !NexusBehaviorSummary) return;
+        var cards = NexusBehaviorSummary.buildPersonaCards(behaviorPrototypes, lastKineticPoints);
+        host.innerHTML = "";
+        cards.forEach(function (c) {
+            var card = document.createElement("div");
+            card.className = "dash-persona-card";
+            card.style.borderLeft = "4px solid " + (c.color || "#6366f1");
+            var h = document.createElement("div");
+            h.className = "dash-persona-card__title";
+            h.textContent = c.name + (c.org_slug ? " · " + c.org_slug : "");
+            var meta = document.createElement("div");
+            meta.className = "dash-persona-card__meta";
+            meta.textContent =
+                (c.count || 0) +
+                " pts · pace " +
+                (c.hints && c.hints.pace != null ? c.hints.pace : "—") +
+                " · focus " +
+                (c.hints && c.hints.focus != null ? c.hints.focus : "—");
+            card.appendChild(h);
+            card.appendChild(meta);
+            if (c.tags && c.tags.length) {
+                var tg = document.createElement("div");
+                tg.className = "dash-persona-card__tags";
+                tg.textContent = c.tags.join(", ");
+                card.appendChild(tg);
+            }
+            host.appendChild(card);
+        });
+
+        var hmHost = $("dash-tag-heatmap");
+        if (hmHost && NexusBehaviorSummary.buildTagHeatmap) {
+            var rows = NexusBehaviorSummary.buildTagHeatmap(behaviorPrototypes, lastKineticPoints);
+            hmHost.innerHTML =
+                "<table class='dash-mini-table'><thead><tr><th>Prototype</th><th>Tag</th><th>n</th></tr></thead><tbody>" +
+                rows
+                    .slice(0, 12)
+                    .map(function (r) {
+                        return (
+                            "<tr><td>" +
+                            escapeHtml(r.prototype) +
+                            "</td><td>" +
+                            escapeHtml(r.tag) +
+                            "</td><td>" +
+                            r.n +
+                            "</td></tr>"
+                        );
+                    })
+                    .join("") +
+                "</tbody></table>";
+        }
+    }
+
+    function escapeHtml(s) {
+        var d = document.createElement("div");
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    function computeFpCentroidForCluster(clusterPoints) {
+        if (!clusterPoints || !clusterPoints.length) return null;
+        var acc = new Array(16).fill(0);
+        var n = 0;
+        var i;
+        var j;
+        for (i = 0; i < clusterPoints.length; i++) {
+            var fp = clusterPoints[i].fp;
+            if (!fp || !fp.length) continue;
+            n++;
+            for (j = 0; j < 16; j++) {
+                acc[j] += Number(fp[j]) || 0;
+            }
+        }
+        if (!n) return null;
+        for (j = 0; j < 16; j++) acc[j] /= n;
+        return acc;
+    }
+
+    function clusterApiPostUrl(pathSuffix) {
+        var root = API_BASE.replace(/\/?$/, "");
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            try {
+                root = new URL(DIRECT_SUMMARY_URL).origin;
+            } catch (_e) {}
+            return root + "/internal/v1" + pathSuffix;
+        }
+        return root + "/v1" + pathSuffix;
+    }
+
+    function clusterAuthHeadersJson() {
+        var headers = { "Content-Type": "application/json" };
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            var tok =
+                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
+                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
+                    : "";
+            if (tok) headers.Authorization = "Bearer " + tok;
+        } else {
+            var pk =
+                typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+                    ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+                    : "";
+            if (pk) headers.Authorization = "Bearer " + pk;
+        }
+        return headers;
+    }
+
+    function getMasterOrgSlugForSave() {
+        var sel = $("dash-prototype-org");
+        if (sel && sel.value) return String(sel.value).trim();
+        return "";
+    }
+
+    async function saveClusterPrototypeFromUi() {
+        var nameEl = $("dash-prototype-name");
+        var colorEl = $("dash-prototype-color");
+        var slotEl = $("dash-prototype-slot");
+        if (!nameEl || !slotEl) return;
+        var name = String(nameEl.value || "").trim();
+        if (!name) {
+            alert("Enter a name for this cluster.");
+            return;
+        }
+        var slot = parseInt(slotEl.value, 10);
+        if (isNaN(slot) || slot < 1) {
+            alert("Pick a k-means slot (1-based).");
+            return;
+        }
+        var idx = slot - 1;
+        var cl = lastClusterResult.clusters[idx];
+        if (!cl || !cl.length) {
+            alert("That cluster slot is empty for the current filters.");
+            return;
+        }
+        var centroid = computeFpCentroidForCluster(cl);
+        if (!centroid) {
+            alert("Could not compute centroid.");
+            return;
+        }
+        var body = {
+            name: name,
+            color: colorEl && colorEl.value ? colorEl.value : "#6366f1",
+            centroid: centroid,
+            match_threshold: 0.85,
+            filters: {
+                challenge_module: getSelectedModuleFilter() || "",
+                granularity: getGranularityMode() || "",
+                k: getDesiredClusterCount(),
+            },
+        };
+        var url = clusterApiPostUrl("/clusters");
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            var osl = getMasterOrgSlugForSave();
+            if (!osl) {
+                alert("Select an organization for this prototype (master dashboard).");
                 return;
             }
+            url += "?org_slug=" + encodeURIComponent(osl);
+        }
+        try {
+            var res = await fetch(url, {
+                method: "POST",
+                headers: clusterAuthHeadersJson(),
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                var err = await res.text();
+                throw new Error(err || String(res.status));
+            }
+            await fetchBehaviorPrototypesList();
+            await fetchData();
+            alert("Saved prototype.");
+        } catch (e) {
+            console.error(e);
+            alert("Save failed: " + (e && e.message ? e.message : e));
+        }
+    }
 
-            lastWarehouseRows = data;
-            globalSessions = groupSessions(data);
-            var mf = getSelectedModuleFilter();
-            var built = buildKineticPointsPCA(data, mf);
-            lastKineticPoints = built.points;
-            var pca = built.pca;
+    async function runReverseSearch() {
+        var modeEl = $("dash-reverse-mode");
+        var sessionIn = $("dash-reverse-session-url");
+        var visitorIn = $("dash-reverse-visitor");
+        var mode = modeEl && modeEl.value === "visitor" ? "visitor" : "session";
+        if (!NexusReverseSearch) return;
+        var base = API_BASE.replace(/\/?$/, "");
+        var internal = DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1;
+        try {
+            if (internal) base = new URL(DIRECT_SUMMARY_URL).origin;
+        } catch (_e) {}
+        var q = {
+            mode: mode,
+            sessionUrl: sessionIn && sessionIn.value ? sessionIn.value.trim() : "",
+            visitorKey: visitorIn && visitorIn.value ? visitorIn.value.trim() : "",
+            since:
+                $("dash-filter-since") && $("dash-filter-since").value
+                    ? $("dash-filter-since").value
+                    : "",
+            until:
+                $("dash-filter-until") && $("dash-filter-until").value
+                    ? $("dash-filter-until").value
+                    : "",
+            limit: 800,
+            orgSlug: getMasterOrgSlugForSave() || undefined,
+        };
+        if (mode === "session" && !q.sessionUrl) {
+            alert("Paste a FullStory replay URL (or path).");
+            return;
+        }
+        if (mode === "visitor" && !q.visitorKey) {
+            alert("Enter nexus_user_key / visitor id.");
+            return;
+        }
+        var url = NexusReverseSearch.buildSearchUrl({ internal: internal, baseUrl: base }, q);
+        var headers = {};
+        if (internal) {
+            var tok =
+                typeof window !== "undefined" && window.NEXUS_LOCAL_MASTER_TOKEN
+                    ? String(window.NEXUS_LOCAL_MASTER_TOKEN).trim()
+                    : "";
+            if (tok) headers.Authorization = "Bearer " + tok;
+        } else {
+            var pk =
+                typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
+                    ? String(window.NEXUS_PUBLISHABLE_KEY).trim()
+                    : "";
+            if (pk) headers.Authorization = "Bearer " + pk;
+        }
+        if (!headers.Authorization) {
+            alert("Sign in or set publishable key for search.");
+            return;
+        }
+        setStatus(true, "Searching…");
+        try {
+            var r = await fetch(url, { headers: headers });
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            var data = await r.json();
+            var arr = Array.isArray(data) ? data : [];
+            processWarehouseRows(arr);
+            setStatus(true, "Reverse search · " + arr.length + " row(s)");
+        } catch (e) {
+            console.error(e);
+            setStatus(false, "Reverse search failed.");
+        }
+    }
 
-            $("stat-kinetic").textContent = String(lastKineticPoints.length);
-            var visibleSessions = Object.keys(globalSessions).filter(function (sid) {
+    function processWarehouseRows(data) {
+        if (!data || !data.length) {
+            globalSessions = {};
+            globalCentroids = [];
+            lastKineticPoints = [];
+            lastWarehouseRows = [];
+            $("stat-kinetic").textContent = "0";
+            $("stat-clusters").textContent = "0";
+            $("stat-sessions").textContent = "0";
+            $("stat-integrity").textContent = "—";
+            clearFullStoryMomentUI();
+            renderSessionList();
+            renderCloud({ clusters: [] }, { x: "PC1", y: "PC2" }, null);
+            renderParallelPanel();
+            renderDimensionCharts([]);
+            var capEmpty = $("pca-caption");
+            if (capEmpty) capEmpty.textContent = "";
+            renderPersonaStrip();
+            populatePrototypeOrgSelect([]);
+            setStatus(true, "Warehouse reachable · empty");
+            return;
+        }
+
+        lastWarehouseRows = data;
+        globalSessions = groupSessions(data);
+        var mf = getSelectedModuleFilter();
+        var built = buildKineticPointsPCA(data, mf);
+        lastKineticPoints = built.points;
+        var pca = built.pca;
+
+        $("stat-kinetic").textContent = String(lastKineticPoints.length);
+        var visibleSessions = Object.keys(globalSessions).filter(function (sid) {
+            return sessionVisibleForModule(sid, mf);
+        });
+        $("stat-sessions").textContent = String(visibleSessions.length);
+        $("stat-integrity").textContent = computeIntegrity(data, lastKineticPoints);
+
+        var axisTitles;
+        var capEl = $("pca-caption");
+        if (!lastKineticPoints.length && built.emptyHint) {
+            axisTitles = { x: "PC1", y: "PC2" };
+            if (capEl) capEl.textContent = built.emptyHint;
+        } else if (pca.fallback) {
+            axisTitles = { x: "Fingerprint · dim 0", y: "Fingerprint · dim 1" };
+            if (capEl) capEl.textContent = "Using raw dimensions 0–1 (PCA needs more variance or samples).";
+        } else {
+            axisTitles = {
+                x: "PC1 (" + pca.explainedPct[0] + "% variance)",
+                y: "PC2 (" + pca.explainedPct[1] + "% variance)",
+            };
+            if (capEl) {
+                var sumVar = Number(pca.explainedPct[0]) + Number(pca.explainedPct[1]);
+                capEl.textContent =
+                    "PCA on 16-D embeddings: PC1 + PC2 account for ~" +
+                    sumVar.toFixed(1) +
+                    "% of total variance (relative to the covariance trace).";
+            }
+        }
+
+        var maxK = getDesiredClusterCount();
+        syncClusterKUi();
+        var km =
+            lastKineticPoints.length === 0
+                ? { clusters: [], centroids: [] }
+                : performKMeans(lastKineticPoints, Math.min(maxK, lastKineticPoints.length));
+        globalCentroids = km.centroids;
+        lastClusterResult = km;
+        enrichKineticPrototypes();
+
+        var nonempty = km.clusters.filter(function (c) {
+            return c.length > 0;
+        }).length;
+        $("stat-clusters").textContent = String(nonempty);
+
+        renderSessionList();
+        renderCloud(km, axisTitles, lastKineticPoints.length ? null : built.emptyHint);
+        renderParallelPanel();
+
+        var gran = getGranularityMode();
+        if (
+            gran === "user" &&
+            selectedUserKey &&
+            collectRowsForVisitorKey(selectedUserKey).length
+        ) {
+            selectUserByVisitorKey(selectedUserKey);
+        } else if (selectedSid && globalSessions[selectedSid] && sessionVisibleForModule(selectedSid, mf)) {
+            selectUser(selectedSid);
+        } else {
+            selectedUserKey = null;
+            var sorted = Object.keys(globalSessions).filter(function (sid) {
                 return sessionVisibleForModule(sid, mf);
             });
-            $("stat-sessions").textContent = String(visibleSessions.length);
-            $("stat-integrity").textContent = computeIntegrity(data, lastKineticPoints);
-
-            var axisTitles;
-            var capEl = $("pca-caption");
-            if (!lastKineticPoints.length && built.emptyHint) {
-                axisTitles = { x: "PC1", y: "PC2" };
-                if (capEl) capEl.textContent = built.emptyHint;
-            } else if (pca.fallback) {
-                axisTitles = { x: "Fingerprint · dim 0", y: "Fingerprint · dim 1" };
-                if (capEl) capEl.textContent = "Using raw dimensions 0–1 (PCA needs more variance or samples).";
+            sorted.sort(function (a, b) {
+                var ka = countKineticRows(globalSessions[a], mf);
+                var kb = countKineticRows(globalSessions[b], mf);
+                if (kb !== ka) return kb - ka;
+                return String(a).localeCompare(String(b));
+            });
+            var first = sorted[0];
+            if (first && lastKineticPoints.length) {
+                selectUser(first);
             } else {
-                axisTitles = {
-                    x: "PC1 (" + pca.explainedPct[0] + "% variance)",
-                    y: "PC2 (" + pca.explainedPct[1] + "% variance)",
-                };
-                if (capEl) {
-                    var sumVar = Number(pca.explainedPct[0]) + Number(pca.explainedPct[1]);
-                    capEl.textContent =
-                        "PCA on 16-D embeddings: PC1 + PC2 account for ~" +
-                        sumVar.toFixed(1) +
-                        "% of total variance (relative to the covariance trace).";
-                }
+                clearFullStoryMomentUI();
             }
+        }
 
-            var maxK = getDesiredClusterCount();
-            syncClusterKUi();
-            var km =
-                lastKineticPoints.length === 0
-                    ? { clusters: [], centroids: [] }
-                    : performKMeans(lastKineticPoints, Math.min(maxK, lastKineticPoints.length));
-            globalCentroids = km.centroids;
+        renderDimensionCharts(data);
 
-            var nonempty = km.clusters.filter(function (c) {
-                return c.length > 0;
-            }).length;
-            $("stat-clusters").textContent = String(nonempty);
+        renderPersonaStrip();
+        populatePrototypeOrgSelect(data);
 
-            renderSessionList();
-            renderCloud(
-                km,
-                axisTitles,
-                lastKineticPoints.length ? null : built.emptyHint
-            );
-            renderParallelPanel();
+        setStatus(
+            true,
+            "Live · " +
+                data.length +
+                " warehouse rows" +
+                (MASTER_ORG_SCOPE ? " (all local orgs)" : "")
+        );
+    }
 
-            var gran = getGranularityMode();
-            if (
-                gran === "user" &&
-                selectedUserKey &&
-                collectRowsForVisitorKey(selectedUserKey).length
-            ) {
-                selectUserByVisitorKey(selectedUserKey);
-            } else if (selectedSid && globalSessions[selectedSid] && sessionVisibleForModule(selectedSid, mf)) {
-                selectUser(selectedSid);
-            } else {
-                selectedUserKey = null;
-                var sorted = Object.keys(globalSessions).filter(function (sid) {
-                    return sessionVisibleForModule(sid, mf);
-                });
-                sorted.sort(function (a, b) {
-                    var ka = countKineticRows(globalSessions[a], mf);
-                    var kb = countKineticRows(globalSessions[b], mf);
-                    if (kb !== ka) return kb - ka;
-                    return String(a).localeCompare(String(b));
-                });
-                var first = sorted[0];
-                if (first && lastKineticPoints.length) {
-                    selectUser(first);
-                } else {
-                    clearFullStoryMomentUI();
-                }
+    function populatePrototypeOrgSelect(rows) {
+        var sel = $("dash-prototype-org");
+        if (!sel || !MASTER_ORG_SCOPE) return;
+        var seen = {};
+        var opts = [];
+        (rows || []).forEach(function (r) {
+            var s = r && r._master_org_slug != null ? String(r._master_org_slug).trim() : "";
+            if (s && !seen[s]) {
+                seen[s] = true;
+                opts.push(s);
             }
+        });
+        opts.sort();
+        var cur = sel.value;
+        sel.innerHTML = "<option value=''>— org for new prototype —</option>";
+        opts.forEach(function (o) {
+            var opt = document.createElement("option");
+            opt.value = o;
+            opt.textContent = o;
+            sel.appendChild(opt);
+        });
+        if (cur && seen[cur]) sel.value = cur;
+    }
 
-            renderDimensionCharts(data);
-
-            setStatus(
-                true,
-                "Live · " +
-                    data.length +
-                    " warehouse rows" +
-                    (MASTER_ORG_SCOPE ? " (all local orgs)" : "")
-            );
+    async function fetchData() {
+        try {
+            await fetchBehaviorPrototypesList();
+            var data = await fetchSummaryPayload();
+            if (data === null) return;
+            processWarehouseRows(Array.isArray(data) ? data : []);
         } catch (err) {
             console.error("Dashboard fetch error:", err);
             clearFullStoryMomentUI();
-                setStatus(
+            setStatus(
                 false,
                 DIRECT_SUMMARY_URL
-                    ? "Cannot reach local master summary — is the collector running with ENABLE_LOCAL_MASTER_SUMMARY=1?"
+                    ? DIRECT_SUMMARY_URL.indexOf("/internal/v1/master-summary") !== -1
+                        ? "Cannot load master summary — unlock internal admin first (session token), or check collector logs."
+                        : "Cannot reach local master summary — is the collector running with ENABLE_LOCAL_MASTER_SUMMARY=1?"
                     : "Cannot reach warehouse API (try Log in for hosted console, or collector + publishable key for local)."
             );
         }
@@ -1596,6 +2120,54 @@
                 renderDimensionCharts(lastWarehouseRows);
             });
         }
+
+        var orgRow = $("dash-prototype-org-row");
+        if (orgRow) orgRow.hidden = !MASTER_ORG_SCOPE;
+        var ps = $("dash-prototype-slot");
+        var cs = $("dash-cohort-slot");
+        var si;
+        if (ps) {
+            ps.innerHTML = "";
+            for (si = 1; si <= 12; si++) {
+                var o = document.createElement("option");
+                o.value = String(si);
+                o.textContent = String(si);
+                ps.appendChild(o);
+            }
+        }
+        if (cs) {
+            cs.innerHTML = "";
+            for (si = 1; si <= 12; si++) {
+                var o2 = document.createElement("option");
+                o2.value = String(si);
+                o2.textContent = String(si);
+                cs.appendChild(o2);
+            }
+        }
+        var drm = $("dash-reverse-mode");
+        function syncRevInputs() {
+            var su = $("dash-reverse-session-url");
+            var vu = $("dash-reverse-visitor");
+            if (!drm || !su || !vu) return;
+            var isV = drm.value === "visitor";
+            su.hidden = isV;
+            vu.hidden = !isV;
+        }
+        if (drm) drm.addEventListener("change", syncRevInputs);
+        syncRevInputs();
+        var df = $("dash-filter-apply");
+        if (df)
+            df.onclick = function () {
+                fetchData();
+            };
+        var brv = $("btn-dash-reverse-search");
+        if (brv) brv.onclick = runReverseSearch;
+        var bsv = $("btn-dash-save-prototype");
+        if (bsv) bsv.onclick = saveClusterPrototypeFromUi;
+        var bsnap = $("btn-dash-snapshot-cohort");
+        if (bsnap) bsnap.onclick = snapshotCohortFromUi;
+        var bseg = $("btn-dash-apply-segmentation");
+        if (bseg) bseg.onclick = applySegmentationFromUi;
 
         Promise.resolve()
             .then(function () {

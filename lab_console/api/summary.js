@@ -27,11 +27,17 @@ module.exports = async function handler(req, res) {
         res.status(503).json({ error: 'NEXUS_COLLECTOR_ORIGIN not configured' });
         return;
     }
-    var limit =
-        req.query && req.query.limit != null && String(req.query.limit).trim() !== ''
-            ? String(req.query.limit).trim()
-            : '';
-    var q = limit ? '?limit=' + encodeURIComponent(limit) : '';
+    var params = new URLSearchParams();
+    if (req.query && req.query.limit != null && String(req.query.limit).trim() !== '') {
+        params.set('limit', String(req.query.limit).trim());
+    }
+    if (req.query && req.query.since != null && String(req.query.since).trim() !== '') {
+        params.set('since', String(req.query.since).trim());
+    }
+    if (req.query && req.query.until != null && String(req.query.until).trim() !== '') {
+        params.set('until', String(req.query.until).trim());
+    }
+    var q = params.toString() ? '?' + params.toString() : '';
     try {
         var r = await fetch(collector + '/bff/v1/summary' + q, {
             headers: { Authorization: 'Bearer ' + jwt },
