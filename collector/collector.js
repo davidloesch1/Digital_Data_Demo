@@ -795,17 +795,24 @@ function mountInternalAdminPortal(app) {
     }
     app.get('/internal/admin', sendAdminIndex);
     app.get('/internal/admin/', sendAdminIndex);
-    /** Master dashboard HTML uses relative css/js paths; they only resolve if the document URL is under /master-dash/. */
+    /** Legacy entry point — no trailing slash so proxies that strip "/" do not loop with sendMasterDashIndex. */
     app.get(['/internal/admin/master-dashboard', '/internal/admin/master-dashboard/'], (_req, res) => {
-        res.redirect(308, '/internal/admin/master-dash/');
+        res.redirect(308, '/internal/admin/master-dash');
     });
-    app.get('/internal/admin/master-dash', (_req, res) => {
-        res.redirect(308, '/internal/admin/master-dash/');
-    });
-    app.use('/internal/admin/master-dash', express.static(masterDashDir, { index: 'index.html' }));
+    function sendMasterDashIndex(_req, res) {
+        res.sendFile(path.join(masterDashDir, 'index.html'), (err) => {
+            if (err) {
+                console.error('internal admin master-dash index:', err.message);
+                res.status(500).type('text/plain').send('Master dashboard bundle missing');
+            }
+        });
+    }
+    /** Serve HTML for both paths; avoid 308 to .../master-dash/ (Railway/proxies often normalize slashes → redirect loops). */
+    app.get(['/internal/admin/master-dash', '/internal/admin/master-dash/'], sendMasterDashIndex);
+    app.use('/internal/admin/master-dash', express.static(masterDashDir, { index: false }));
     app.use('/internal/admin', express.static(adminDir, { index: false }));
     console.log(
-        'Collector: internal admin portal at GET /internal/admin, GET /internal/admin/master-dash/ (legacy /internal/admin/master-dashboard redirects here)'
+        'Collector: internal admin portal at GET /internal/admin, GET /internal/admin/master-dash (legacy /master-dashboard redirects here)'
     );
 }
 
