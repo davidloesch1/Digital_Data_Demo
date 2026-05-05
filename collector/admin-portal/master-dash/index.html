@@ -155,7 +155,7 @@
                     <div class="dash-friction-card dash-friction-card--wide">
                         <h3 class="dash-friction-card__title">Postgres <code>nexus_friction_context</code></h3>
                         <p class="dash-friction-card__hint dash-friction-guided">
-                            Requires internal token + org slug (master org dropdown or Gold card org override).
+                            Requires internal token + org slug (warehouse org selector or Gold card org override).
                         </p>
                         <div class="dash-friction-table-wrap">
                             <table class="dash-friction-table" aria-label="Friction context rows">
@@ -264,12 +264,35 @@
             </div>
 
             <div class="card card--filters dash-extra-card">
-                <h3 class="card-heading">Date range &amp; reverse search</h3>
-                <p class="card-sub">Optional <code>since</code>/<code>until</code> apply to the warehouse JSON load. Reverse search queries indexed rows directly.</p>
+                <h3 class="card-heading">Warehouse load: org, range, limit</h3>
+                <p class="card-sub">
+                    Master summary: choose an <strong>organization</strong> first, then optional <code>since</code>/<code>until</code> and
+                    <strong>max rows</strong> (newest first within the window). Reverse search still queries indexed rows directly.
+                </p>
+                <div class="dash-filter-row" id="dash-prototype-org-row" hidden>
+                    <label class="dash-filter-label"
+                        >Organization<br /><select
+                            id="dash-prototype-org"
+                            class="dash-input"
+                            aria-label="Organization for warehouse and internal APIs"
+                        ></select>
+                    </label>
+                </div>
                 <div class="dash-filter-row">
                     <label class="dash-filter-label">Since<br /><input type="datetime-local" id="dash-filter-since" class="dash-input" /></label>
                     <label class="dash-filter-label">Until<br /><input type="datetime-local" id="dash-filter-until" class="dash-input" /></label>
-                    <button type="button" class="btn-refresh" id="dash-filter-apply">Apply range</button>
+                    <label class="dash-filter-label"
+                        >Max rows<br /><input
+                            type="number"
+                            id="dash-summary-limit"
+                            class="dash-input"
+                            min="1"
+                            max="5000"
+                            step="1"
+                            value="1000"
+                            title="Applies to master-summary, FullStory events for scope, and reverse search limits"
+                    /></label>
+                    <button type="button" class="btn-refresh" id="dash-filter-apply">Apply / refresh warehouse</button>
                 </div>
                 <div class="dash-filter-row">
                     <select id="dash-reverse-mode" class="dash-input" aria-label="Search mode">
@@ -305,9 +328,6 @@
             <div class="card card--prototype dash-extra-card" id="dash-prototype-card">
                 <h3 class="card-heading">Cluster prototypes &amp; cohorts</h3>
                 <p class="card-sub">Save a <strong>named prototype</strong> from a k-means slot (16-D centroid). Snapshot visitors into a cohort and push segmentation vars for the SDK manifest.</p>
-                <div class="dash-filter-row" id="dash-prototype-org-row" hidden>
-                    <label class="dash-filter-label">Org (master)<br /><select id="dash-prototype-org" class="dash-input"></select></label>
-                </div>
                 <div class="dash-filter-row">
                     <label class="dash-filter-label">Name<br /><input type="text" id="dash-prototype-name" class="dash-input" placeholder="e.g. Hesitant browser" /></label>
                     <label class="dash-filter-label">Color<br /><input type="color" id="dash-prototype-color" value="#6366f1" /></label>
@@ -356,7 +376,7 @@
                 <p class="card-sub">
                     List and save human-verified 16-D fingerprints via collector
                     <code>GET/POST /internal/v1/orgs/:slug/gold-standard-vectors</code>. Requires
-                    <strong>internal admin token</strong> (sidebar) and org slug (master org dropdown, or override below).
+                    <strong>internal admin token</strong> (sidebar) and org slug (warehouse org selector above, or override below).
                     Contract: <code>docs/GOLD_STANDARD_VECTORS.md</code>.
                 </p>
                 <div class="dash-filter-row">

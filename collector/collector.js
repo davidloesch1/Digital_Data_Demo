@@ -950,15 +950,29 @@ function mountInternalAdminRoutes(app) {
         try {
             const since = parseOptionalIsoDate(req, 'since');
             const until = parseOptionalIsoDate(req, 'until');
-            const data = await tenantDbApi.fetchRecentPayloadsAllOrgs(
-                tenantContext.pool,
-                limit,
-                since,
-                until
-            );
+            const orgSlug =
+                req.query && req.query.org_slug != null ? String(req.query.org_slug).trim() : '';
+            let data;
+            if (orgSlug) {
+                data = await tenantDbApi.fetchRecentPayloadsForOrg(
+                    tenantContext.pool,
+                    orgSlug,
+                    limit,
+                    since,
+                    until
+                );
+                res.setHeader('X-Master-Summary', `org:${orgSlug}`);
+            } else {
+                data = await tenantDbApi.fetchRecentPayloadsAllOrgs(
+                    tenantContext.pool,
+                    limit,
+                    since,
+                    until
+                );
+                res.setHeader('X-Master-Summary', 'all-orgs');
+            }
             res.setHeader('X-Summary-Line-Limit', String(limit));
             res.setHeader('X-Summary-Lines-Returned', String(data.length));
-            res.setHeader('X-Master-Summary', 'all-orgs');
             res.status(200).json(data);
         } catch (e) {
             console.error('internal GET /master-summary:', e.message || e);
@@ -1015,24 +1029,38 @@ function mountLocalMasterSummary(app) {
         const limit = parseSummaryLimit(req);
         const since = parseOptionalIsoDate(req, 'since');
         const until = parseOptionalIsoDate(req, 'until');
+        const orgSlug =
+            req.query && req.query.org_slug != null ? String(req.query.org_slug).trim() : '';
         try {
-            const data = await tenantDbApi.fetchRecentPayloadsAllOrgs(
-                tenantContext.pool,
-                limit,
-                since,
-                until
-            );
+            let data;
+            if (orgSlug) {
+                data = await tenantDbApi.fetchRecentPayloadsForOrg(
+                    tenantContext.pool,
+                    orgSlug,
+                    limit,
+                    since,
+                    until
+                );
+                res.setHeader('X-Master-Summary', `org:${orgSlug}`);
+            } else {
+                data = await tenantDbApi.fetchRecentPayloadsAllOrgs(
+                    tenantContext.pool,
+                    limit,
+                    since,
+                    until
+                );
+                res.setHeader('X-Master-Summary', 'all-orgs');
+            }
             res.setHeader('X-Summary-Line-Limit', String(limit));
             res.setHeader('X-Summary-Lines-Returned', String(data.length));
-            res.setHeader('X-Master-Summary', 'all-orgs');
             res.status(200).json(data);
         } catch (e) {
-            console.error('fetchRecentPayloadsAllOrgs:', e);
+            console.error('local GET /master-summary:', e.message || e);
             res.status(500).send('Read Error');
         }
     });
     console.log(
-        'Collector: GET /local/v1/master-summary (all orgs; ENABLE_LOCAL_MASTER_SUMMARY — loopback or LOCAL_MASTER_SUMMARY_TOKEN)'
+        'Collector: GET /local/v1/master-summary (optional ?org_slug=…, ?since, ?until, ?limit; ENABLE_LOCAL_MASTER_SUMMARY — loopback or LOCAL_MASTER_SUMMARY_TOKEN)'
     );
 }
 

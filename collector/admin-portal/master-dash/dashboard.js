@@ -42,7 +42,11 @@
     const LS_K_KEY = "nexus_dash_k_max";
     const LS_GRAN_KEY = "nexus_dash_granularity";
     const LS_DIM_SCOPE_KEY = "nexus_dash_dim_scope";
+    const LS_SUMMARY_LIMIT_KEY = "nexus_dash_summary_limit";
+    const LS_MASTER_ORG_SLUG_KEY = "nexus_master_dash_org_slug";
     const MAX_DIM_BARS = 20;
+    /** Must match collector `SUMMARY_QUERY_LIMIT_CAP` default (5000). */
+    const SUMMARY_UI_LIMIT_CAP = 5000;
 
     let cloudChart = null;
     let radarCtrl = null;
@@ -70,6 +74,8 @@
     let lastFsEvents = [];
     /** Map session key → fullstory_session_metrics row (for prototype thresholds + persona FS block). */
     let fsSessionMetricsBySid = {};
+    /** Slugs for master org dropdown (from GET /internal/v1/orgs, merged with warehouse rows). */
+    let masterOrgSlugsForPicker = [];
 
     function $(id) {
         return document.getElementById(id);
@@ -445,7 +451,7 @@
                 $("dash-filter-until") && $("dash-filter-until").value
                     ? $("dash-filter-until").value
                     : "",
-            limit: 5000,
+            limit: getSummaryLimitForRequest(),
             orgSlug: getMasterOrgSlugForSave() || undefined,
         };
         var url = NexusReverseSearch.buildSearchUrl({ internal: internal, baseUrl: base }, q);
@@ -1884,6 +1890,105 @@
         return (a || "…") + " → " + (b || "…");
     }
 
+    /** Master-dash / lab master: direct collector summary URL (internal or local cross-org read). */
+    function isDirectMasterWarehouseMode() {
+        return Boolean(
+            MASTER_ORG_SCOPE &&
+                DIRECT_SUMMARY_URL &&
+                (DIRECT_SUMMARY_URL.indexOf("/master-summary") !== -1 ||
+                    DIRECT_SUMMARY_URL.indexOf("master-summary") !== -1)
+        );
+    }
+
+    function getSummaryLimitForRequest() {
+        var el = $("dash-summary-limit");
+        var raw = el && el.value !== "" && el.value != null ? parseInt(String(el.value), 10) : NaN;
+        if (!Number.isFinite(raw) || raw < 1) raw = 1000;
+        return Math.min(Math.floor(raw), SUMMARY_UI_LIMIT_CAP);
+    }
+
+    /** Query string for GET master-summary (no leading ? or &). */
+    function buildMasterSummaryQueryString() {
+        var parts = [];
+        var sinceEl = $("dash-filter-since");
+        var untilEl = $("dash-filter-until");
+        if (sinceEl && sinceEl.value) parts.push("since=" + encodeURIComponent(String(sinceEl.value)));
+        if (untilEl && untilEl.value) parts.push("until=" + encodeURIComponent(String(untilEl.value)));
+        parts.push("limit=" + encodeURIComponent(String(getSummaryLimitForRequest())));
+        if (isDirectMasterWarehouseMode()) {
+            var slug = getMasterOrgSlugForSave();
+            if (slug) parts.push("org_slug=" + encodeURIComponent(slug));
+        }
+        return parts.join("&");
+    }
+
+    function renderMasterOrgSelect(opts) {
+        var preferStored = opts && opts.preferStored;
+        var sel = $("dash-prototype-org");
+        if (!sel || !MASTER_ORG_SCOPE) return;
+        var prev = sel.value;
+        var sorted = masterOrgSlugsForPicker.slice().sort();
+        sel.innerHTML = "<option value=\"\">— Select organization —</option>";
+        sorted.forEach(function (slug) {
+            var o = document.createElement("option");
+            o.value = slug;
+            o.textContent = slug;
+            sel.appendChild(o);
+        });
+        var pick = prev;
+        if (preferStored) {
+            try {
+                var st = localStorage.getItem(LS_MASTER_ORG_SLUG_KEY);
+                if (st && sorted.indexOf(st) >= 0) pick = st;
+            } catch (_e) {}
+        }
+        if (pick && sorted.indexOf(pick) >= 0) sel.value = pick;
+        else if (prev && sorted.indexOf(prev) >= 0) sel.value = prev;
+    }
+
+    function mergeOrgSlugsFromWarehouseRows(rows) {
+        if (!MASTER_ORG_SCOPE) return;
+        var seen = {};
+        masterOrgSlugsForPicker.forEach(function (s) {
+            seen[s] = true;
+        });
+        var added = false;
+        (rows || []).forEach(function (r) {
+            var s = r && r._master_org_slug != null ? String(r._master_org_slug).trim() : "";
+            if (s && !seen[s]) {
+                seen[s] = true;
+                masterOrgSlugsForPicker.push(s);
+                added = true;
+            }
+        });
+        if (added) renderMasterOrgSelect({});
+    }
+
+    async function fetchMasterOrganizationList() {
+        masterOrgSlugsForPicker = [];
+        if (!isDirectMasterWarehouseMode()) return;
+        var tok = getMasterInternalAdminToken();
+        if (!tok) return;
+        var origin = masterInternalApiOrigin();
+        try {
+            var r = await fetch(origin + "/internal/v1/orgs", {
+                headers: { Authorization: "Bearer " + tok },
+            });
+            if (!r.ok) return;
+            var j = await r.json();
+            var orgs = j.orgs || [];
+            var seen = {};
+            orgs.forEach(function (o) {
+                var s = o && o.slug != null ? String(o.slug).trim() : "";
+                if (s) seen[s] = true;
+            });
+            masterOrgSlugsForPicker = Object.keys(seen).sort();
+            renderMasterOrgSelect({ preferStored: true });
+        } catch (e) {
+            console.warn("fetchMasterOrganizationList:", e);
+        }
+    }
+
     function appendQueryToUrl(baseUrl, extraQs) {
         if (!extraQs) return baseUrl;
         return baseUrl + (baseUrl.indexOf("?") >= 0 ? "" : "?") + extraQs.replace(/^&/, "");
@@ -1891,9 +1996,12 @@
 
     function collectorOriginForFullstory() {
         var root = API_BASE.replace(/\/?$/, "");
-        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+        if (DIRECT_SUMMARY_URL) {
             try {
-                root = new URL(DIRECT_SUMMARY_URL).origin;
+                var du = String(DIRECT_SUMMARY_URL);
+                if (du.indexOf("/internal/v1/") !== -1 || du.indexOf("/local/v1/master-summary") !== -1) {
+                    root = new URL(DIRECT_SUMMARY_URL).origin;
+                }
             } catch (_e) {}
         }
         return root;
@@ -1977,7 +2085,7 @@
         } else {
             return;
         }
-        parts.push("limit=5000");
+        parts.push("limit=" + encodeURIComponent(String(getSummaryLimitForRequest())));
         var qs = parts.join("&");
         var origin = collectorOriginForFullstory();
         var path = internal
@@ -2300,18 +2408,28 @@
      * Load warehouse rows (same shape as GET /v1/summary).
      */
     async function fetchSummaryPayload() {
+        if (isDirectMasterWarehouseMode() && !getMasterOrgSlugForSave()) {
+            return null;
+        }
         var dateQs = getDateFilterQueryString();
+        var summaryQs = buildMasterSummaryQueryString();
         var data = null;
         if (DIRECT_SUMMARY_URL) {
             var hdrs = {};
             var masterTok = getMasterInternalAdminToken();
             if (masterTok) hdrs.Authorization = "Bearer " + masterTok;
-            var sumUrl = appendQueryToUrl(DIRECT_SUMMARY_URL, dateQs);
+            var sumUrl = appendQueryToUrl(
+                DIRECT_SUMMARY_URL,
+                summaryQs ? "&" + summaryQs : ""
+            );
             var directRes = await fetch(sumUrl, { headers: hdrs });
             if (!directRes.ok) throw new Error("HTTP " + directRes.status);
             data = await directRes.json();
         } else {
-            var apiQs = dateQs ? "?" + dateQs.replace(/^&/, "") : "";
+            var pubParts = [];
+            if (dateQs) pubParts.push(dateQs.replace(/^&/, ""));
+            pubParts.push("limit=" + encodeURIComponent(String(getSummaryLimitForRequest())));
+            var apiQs = pubParts.length ? "?" + pubParts.join("&") : "";
             var pr = await fetch("/api/summary" + apiQs, {
                 credentials: "same-origin",
             });
@@ -2339,7 +2457,10 @@
         if (data === null && !DIRECT_SUMMARY_URL) {
             var summaryPath =
                 (typeof window !== "undefined" && window.NEXUS_SUMMARY_PATH) || "/summary";
-            var sumQs = dateQs ? "?" + dateQs.replace(/^&/, "") : "";
+            var sumParts = [];
+            if (dateQs) sumParts.push(dateQs.replace(/^&/, ""));
+            sumParts.push("limit=" + encodeURIComponent(String(getSummaryLimitForRequest())));
+            var sumQs = sumParts.length ? "?" + sumParts.join("&") : "";
             var url = API_BASE.replace(/\/?$/, "") + summaryPath + sumQs;
             var pk =
                 typeof window !== "undefined" && window.NEXUS_PUBLISHABLE_KEY
@@ -2623,7 +2744,7 @@
                 $("dash-filter-until") && $("dash-filter-until").value
                     ? $("dash-filter-until").value
                     : "",
-            limit: 800,
+            limit: getSummaryLimitForRequest(),
             orgSlug: getMasterOrgSlugForSave() || undefined,
         };
         if (mode === "session" && !q.sessionUrl) {
@@ -2632,6 +2753,10 @@
         }
         if (mode === "visitor" && !q.visitorKey) {
             alert("Enter nexus_user_key / visitor id.");
+            return;
+        }
+        if (internal && !getMasterOrgSlugForSave()) {
+            alert("Select an organization before reverse search (master dashboard).");
             return;
         }
         var url = NexusReverseSearch.buildSearchUrl({ internal: internal, baseUrl: base }, q);
@@ -2762,7 +2887,7 @@
             renderSessionList();
             syncScopeToolbar();
             refreshScopedCharts();
-            populatePrototypeOrgSelect([]);
+            mergeOrgSlugsFromWarehouseRows([]);
             setStatus(true, "Warehouse reachable · empty");
             var frictionEmpty = window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll
                 ? window.NexusFrictionTriage.refreshAll()
@@ -2883,15 +3008,15 @@
             applyDefaultSessionSelection();
         }
 
-        populatePrototypeOrgSelect(data);
+        mergeOrgSlugsFromWarehouseRows(data);
 
-        setStatus(
-            true,
-            "Live · " +
-                data.length +
-                " warehouse rows" +
-                (MASTER_ORG_SCOPE ? " (all local orgs)" : "")
-        );
+        var orgNote = "";
+        if (isDirectMasterWarehouseMode() && getMasterOrgSlugForSave()) {
+            orgNote = " · org " + getMasterOrgSlugForSave();
+        } else if (MASTER_ORG_SCOPE && !isDirectMasterWarehouseMode()) {
+            orgNote = " (multi-org load)";
+        }
+        setStatus(true, "Live · " + data.length + " warehouse rows" + orgNote);
         var frictionDone = window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll
             ? window.NexusFrictionTriage.refreshAll()
             : Promise.resolve();
@@ -2902,30 +3027,6 @@
         });
     }
 
-    function populatePrototypeOrgSelect(rows) {
-        var sel = $("dash-prototype-org");
-        if (!sel || !MASTER_ORG_SCOPE) return;
-        var seen = {};
-        var opts = [];
-        (rows || []).forEach(function (r) {
-            var s = r && r._master_org_slug != null ? String(r._master_org_slug).trim() : "";
-            if (s && !seen[s]) {
-                seen[s] = true;
-                opts.push(s);
-            }
-        });
-        opts.sort();
-        var cur = sel.value;
-        sel.innerHTML = "<option value=''>— org for new prototype —</option>";
-        opts.forEach(function (o) {
-            var opt = document.createElement("option");
-            opt.value = o;
-            opt.textContent = o;
-            sel.appendChild(opt);
-        });
-        if (cur && seen[cur]) sel.value = cur;
-    }
-
     async function fetchData() {
         try {
             pendingReverseFocus = null;
@@ -2933,6 +3034,14 @@
             viewScope = { mode: "all", sid: null, visitorKey: null, showPopulation: false };
             var popEl = $("scope-show-population");
             if (popEl) popEl.checked = false;
+            if (isDirectMasterWarehouseMode() && !getMasterOrgSlugForSave()) {
+                await fetchBehaviorPrototypesList();
+                setStatus(
+                    false,
+                    "Select an organization, optional Since / Until and Max rows, then click Refresh data."
+                );
+                return;
+            }
             await fetchBehaviorPrototypesList();
             var data = await fetchSummaryPayload();
             if (data === null) return;
@@ -3269,7 +3378,20 @@
                 });
             }
             var po = $("dash-prototype-org");
-            if (po) po.addEventListener("change", refreshFrictionShell);
+            if (po) {
+                po.addEventListener("change", function () {
+                    try {
+                        var v = getMasterOrgSlugForSave();
+                        if (v) localStorage.setItem(LS_MASTER_ORG_SLUG_KEY, v);
+                        else localStorage.removeItem(LS_MASTER_ORG_SLUG_KEY);
+                    } catch (_e) {}
+                    if (isDirectMasterWarehouseMode() && getMasterOrgSlugForSave()) {
+                        void fetchData();
+                    } else {
+                        refreshFrictionShell();
+                    }
+                });
+            }
             var gs = $("dash-gold-org-slug");
             if (gs) gs.addEventListener("change", refreshFrictionShell);
             var cd = $("dash-context-domain");
@@ -3285,7 +3407,43 @@
             })
             .catch(function () {})
             .then(function () {
-                fetchData();
+                var limEl = $("dash-summary-limit");
+                if (limEl) {
+                    try {
+                        var svl = localStorage.getItem(LS_SUMMARY_LIMIT_KEY);
+                        if (svl != null && String(svl).trim() !== "") limEl.value = String(svl).trim();
+                    } catch (_e) {}
+                    limEl.addEventListener("change", function () {
+                        try {
+                            localStorage.setItem(LS_SUMMARY_LIMIT_KEY, String(getSummaryLimitForRequest()));
+                        } catch (_e2) {}
+                    });
+                }
+                var ts = $("dash-internal-token-save");
+                var ti = $("dash-internal-token-input");
+                if (ts && ti) {
+                    ts.addEventListener("click", function () {
+                        try {
+                            sessionStorage.setItem(
+                                INTERNAL_ADMIN_TOKEN_STORAGE_KEY,
+                                String(ti.value || "").trim()
+                            );
+                        } catch (_e3) {}
+                        location.reload();
+                    });
+                }
+                if (isDirectMasterWarehouseMode()) {
+                    return fetchMasterOrganizationList().then(function () {
+                        if (getMasterOrgSlugForSave()) {
+                            return fetchData();
+                        }
+                        setStatus(
+                            false,
+                            "Select an organization, optional Since / Until and Max rows, then click Apply / refresh warehouse (or Refresh data in the header)."
+                        );
+                    });
+                }
+                return fetchData();
             });
 
         var sk = $("kmeans-max-k");

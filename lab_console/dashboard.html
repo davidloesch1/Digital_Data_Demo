@@ -101,12 +101,35 @@
             </div>
 
             <div class="card card--filters dash-extra-card">
-                <h3 class="card-heading">Date range &amp; reverse search</h3>
-                <p class="card-sub">Optional <code>since</code>/<code>until</code> apply to the warehouse JSON load. Reverse search queries indexed rows directly.</p>
+                <h3 class="card-heading">Warehouse load: org, range, limit</h3>
+                <p class="card-sub">
+                    When using the master summary URL, choose an <strong>organization</strong> first, then optional
+                    <code>since</code>/<code>until</code> and <strong>max rows</strong>. Reverse search queries indexed rows directly.
+                </p>
+                <div class="dash-filter-row" id="dash-prototype-org-row" hidden>
+                    <label class="dash-filter-label"
+                        >Organization<br /><select
+                            id="dash-prototype-org"
+                            class="dash-input"
+                            aria-label="Organization for warehouse and internal APIs"
+                        ></select>
+                    </label>
+                </div>
                 <div class="dash-filter-row">
                     <label class="dash-filter-label">Since<br /><input type="datetime-local" id="dash-filter-since" class="dash-input" /></label>
                     <label class="dash-filter-label">Until<br /><input type="datetime-local" id="dash-filter-until" class="dash-input" /></label>
-                    <button type="button" class="btn-refresh" id="dash-filter-apply">Apply range</button>
+                    <label class="dash-filter-label"
+                        >Max rows<br /><input
+                            type="number"
+                            id="dash-summary-limit"
+                            class="dash-input"
+                            min="1"
+                            max="5000"
+                            step="1"
+                            value="1000"
+                            title="Applies to master-summary, FullStory events for scope, and reverse search limits"
+                    /></label>
+                    <button type="button" class="btn-refresh" id="dash-filter-apply">Apply / refresh warehouse</button>
                 </div>
                 <div class="dash-filter-row">
                     <select id="dash-reverse-mode" class="dash-input" aria-label="Search mode">
@@ -142,9 +165,6 @@
             <div class="card card--prototype dash-extra-card" id="dash-prototype-card">
                 <h3 class="card-heading">Cluster prototypes &amp; cohorts</h3>
                 <p class="card-sub">Save a <strong>named prototype</strong> from a k-means slot (16-D centroid). Snapshot visitors into a cohort and push segmentation vars for the SDK manifest.</p>
-                <div class="dash-filter-row" id="dash-prototype-org-row" hidden>
-                    <label class="dash-filter-label">Org (master)<br /><select id="dash-prototype-org" class="dash-input"></select></label>
-                </div>
                 <div class="dash-filter-row">
                     <label class="dash-filter-label">Name<br /><input type="text" id="dash-prototype-name" class="dash-input" placeholder="e.g. Hesitant browser" /></label>
                     <label class="dash-filter-label">Color<br /><input type="color" id="dash-prototype-color" value="#6366f1" /></label>

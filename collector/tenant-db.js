@@ -426,6 +426,51 @@ async function fetchRecentPayloadsAllOrgs(pool, limit, since, until) {
 }
 
 /**
+ * Same as fetchRecentPayloadsAllOrgs but restricted to one organization (by slug).
+ * @param {import('pg').Pool} pool
+ * @param {string} orgSlug
+ * @param {number} limit
+ * @param {string|null} since ISO
+ * @param {string|null} until ISO
+ * @returns {Promise<object[]>}
+ */
+async function fetchRecentPayloadsForOrg(pool, orgSlug, limit, since, until) {
+    const org = await getOrganizationBySlug(pool, orgSlug);
+    if (!org) return [];
+    const params = [org.id];
+    let cond = 'be.org_id = $1';
+    let p = 2;
+    if (since) {
+        cond += ` AND be.created_at >= $${p}::timestamptz`;
+        params.push(since);
+        p++;
+    }
+    if (until) {
+        cond += ` AND be.created_at <= $${p}::timestamptz`;
+        params.push(until);
+        p++;
+    }
+    params.push(limit);
+    const { rows } = await pool.query(
+        `SELECT be.payload, o.id AS org_id, o.slug AS org_slug
+         FROM behavior_events be
+         INNER JOIN organizations o ON o.id = be.org_id
+         WHERE ${cond}
+         ORDER BY be.created_at DESC
+         LIMIT $${p}`,
+        params
+    );
+    return rows
+        .map((r) => {
+            const pl = r.payload && typeof r.payload === 'object' ? { ...r.payload } : {};
+            pl._master_org_id = r.org_id;
+            pl._master_org_slug = r.org_slug;
+            return pl;
+        })
+        .reverse();
+}
+
+/**
  * Remove up to `maxDelete` most recent events for this org matching payload.session_url (legacy /discard parity).
  * @returns {Promise<number>} rows deleted
  */
@@ -1673,6 +1718,7 @@ module.exports = {
     maybeRecordFrictionFromKineticIngest,
     fetchRecentPayloads,
     fetchRecentPayloadsAllOrgs,
+    fetchRecentPayloadsForOrg,
     deleteRecentEventsBySessionUrl,
     provisionOrgAndPublishableKey,
     revokePublishableKey,

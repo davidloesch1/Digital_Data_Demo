@@ -59,6 +59,21 @@
             <div class="dash-aside__logo">Live warehouse</div>
             <div class="label">Sessions &amp; DNA rows</div>
             <div id="session-list"></div>
+            <div class="dash-internal-token-panel" id="dash-internal-token-panel">
+                <div class="label">Collector internal token</div>
+                <p class="dash-internal-token-panel__hint">
+                    Same value as <code>INTERNAL_ADMIN_TOKEN</code> on the collector (needed to list orgs via
+                    <code>GET /internal/v1/orgs</code>). Saved in <code>sessionStorage</code>.
+                </p>
+                <input
+                    type="password"
+                    id="dash-internal-token-input"
+                    class="dash-input dash-internal-token-panel__input"
+                    placeholder="Paste token, then Save"
+                    autocomplete="off"
+                />
+                <button type="button" class="btn-refresh" id="dash-internal-token-save">Save &amp; reload</button>
+            </div>
             <div class="dash-aside__footer">
                 <div id="dev-status" class="dash-status">Waiting for data…</div>
                 <button type="button" class="btn-refresh" id="btn-reload-page">Reload view</button>
@@ -66,6 +81,38 @@
         </aside>
 
         <main class="dash-main">
+            <div class="card card--filters dash-extra-card" style="margin-bottom: 1.25rem">
+                <h3 class="card-heading">Warehouse load: org, range, limit</h3>
+                <p class="card-sub">
+                    Choose an <strong>organization</strong>, optional <code>since</code>/<code>until</code>, and
+                    <strong>max rows</strong> for <code>GET /local/v1/master-summary?org_slug=…</code> (newest first in
+                    the window). Save the internal token in the sidebar to populate the org list.
+                </p>
+                <div class="dash-filter-row" id="dash-prototype-org-row" hidden>
+                    <label class="dash-filter-label"
+                        >Organization<br /><select
+                            id="dash-prototype-org"
+                            class="dash-input"
+                            aria-label="Organization for warehouse load"
+                        ></select>
+                    </label>
+                </div>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label">Since<br /><input type="datetime-local" id="dash-filter-since" class="dash-input" /></label>
+                    <label class="dash-filter-label">Until<br /><input type="datetime-local" id="dash-filter-until" class="dash-input" /></label>
+                    <label class="dash-filter-label"
+                        >Max rows<br /><input
+                            type="number"
+                            id="dash-summary-limit"
+                            class="dash-input"
+                            min="1"
+                            max="5000"
+                            step="1"
+                            value="1000"
+                    /></label>
+                    <button type="button" class="btn-refresh" id="dash-filter-apply">Apply / refresh warehouse</button>
+                </div>
+            </div>
             <div class="stat-grid">
                 <div class="card card--stat">
                     <div class="label">Kinetic DNA rows</div>
@@ -91,7 +138,7 @@
                         <div>
                             <div class="label">Behavioral discovery cloud</div>
                             <h2 class="card-heading">K-means clusters on kinetic fingerprints</h2>
-                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Use <strong>Cloud points</strong> to plot one dot per kinetic row, per FullStory session (mean fingerprint), or per visitor (mean across sessions when <code>nexus_user_key</code> is present). This page loads <strong>all orgs</strong> from the collector’s <code>/local/v1/master-summary</code> (Postgres warehouse), not per-org <code>/summary</code>.</p>
+                            <p class="card-sub">Scatter uses <strong>PCA</strong> on all 16 embedding dimensions (same rows as the parallel plot below). Use <strong>Cloud points</strong> to plot one dot per kinetic row, per FullStory session (mean fingerprint), or per visitor (mean across sessions when <code>nexus_user_key</code> is present). This page loads the collector’s <code>/local/v1/master-summary</code> for the <strong>selected organization</strong> (Postgres warehouse), scoped by optional time range and row limit.</p>
                             <p id="pca-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
                             <details class="dash-details">
                                 <summary class="dash-details__summary">What are PC1 / PC2, and when is “fallback” used?</summary>
@@ -205,7 +252,7 @@
                     <p class="dash-modal__eyebrow">Discovery dashboard</p>
                     <h2 id="dash-info-modal-title" class="dash-modal__title">Fingerprints, warehouse, and charts</h2>
                     <p id="dash-info-modal-desc" class="dash-modal__lede">
-                        Same visualization as the org dashboard, but this page loads <strong>every organization’s</strong> recent warehouse rows from your <em>local</em> collector (not a single-org JWT).
+                        Same visualization as the org dashboard, but this page loads recent warehouse rows from your <em>local</em> collector via <code>/local/v1/master-summary</code> for one organization at a time (pick org + optional range above).
                     </p>
                 </div>
                 <form method="dialog" class="dash-modal__close-form">
