@@ -2,11 +2,24 @@
 
 Incremental revamp of [collector/admin-portal/master-dash/](collector/admin-portal/master-dash/) on the **static HTML/JS/CSS** stack. Slice 1 ships **Friction triage**: global shell (context + freshness + guided/analyst), schema health, friction signal rates, Postgres `nexus_friction_context` table, and a ranked **review queue** with focus-session actions.
 
+## Single-org focus (product contract)
+
+**Decision:** The master dashboard treats **exactly one organization as “in focus”** at a time for interpretation of the warehouse load and for org-scoped internal APIs (friction, snippet config, FullStory helpers, clusters, gold). Cross-tenant views are **secondary**: an explicit **“All orgs”** (or compare) mode may exist later, but the default operator path is **pick org → pick time window → explore**.
+
+**Why:** Aligns the UI with how operators debug (“this tenant”) and with the long-term **org-scoped read** model in [docs/PRODUCT_VISION.md](PRODUCT_VISION.md). Reduces confusion where `master-summary` returns all orgs but side actions required a separate org dropdown.
+
+**Implementation phases (plan only until built):**
+
+1. **Phase A (UI):** After each `master-summary` fetch, **filter rows in memory** to the focused org using `_master_org_slug` (or `org_slug` on the payload). All charts, friction aggregates, and session lists use that filtered set. One **primary org** control (may subsume or sync with today’s prototype-org selector) drives both display and `getMasterOrgSlugForSave()` / `getEffectiveOrgSlugForInternal()`.
+2. **Phase B (optional collector):** Add optional `org_slug` (or `org_slugs[]`) query params to `GET /internal/v1/master-summary` (and `GET /local/v1/master-summary`) so the server returns a narrower slice—better for scale and clarity than client-only filtering.
+
+**Escape hatch:** Power users may switch to **all orgs in window** for rare cross-tenant triage; that mode should be clearly labeled and should not be the default.
+
 ## Information architecture (target)
 
 | Area | Role |
 |------|------|
-| **Global shell** | Org, optional domain/site hint, environment label, time range (reuses date filters), freshness (`GET /health`), Guided vs Analyst, contract banner |
+| **Global shell** | **Primary org (required or strongly defaulted)**, optional domain/site hint (within focused org), environment label, time range (reuses date filters), freshness (`GET /health`), Guided vs Analyst, contract banner; optional explicit **all-orgs** mode (non-default) |
 | **Home / friction (slice 1)** | Cards answering job stories 1–4 below |
 | **Exploration** | Existing cloud, parallel, radar (unchanged in slice 1) |
 | **Library** | Gold + prototypes + vocabulary — later slice |
@@ -38,7 +51,9 @@ Incremental revamp of [collector/admin-portal/master-dash/](collector/admin-port
 
 ## Domain / multi-tenant assumptions
 
-Until payloads carry a canonical `site_key`, the **Domain / site hint** field filters client-side by substring match on `session_url` + `label` (case-insensitive). Empty means “all rows in the current warehouse load.”
+Until payloads carry a canonical `site_key`, the **Domain / site hint** field filters client-side by substring match on `session_url` + `label` (case-insensitive). Under **single-org focus**, empty means “all rows for the **focused org** in the current load”; under an explicit all-orgs mode, empty means all rows in that load.
+
+Row provenance for master-summary payloads: **`_master_org_slug`** / **`_master_org_id`** (set by the collector on cross-org reads)—use these for org scoping in Phase A.
 
 ## Adding a new card module (for contributors)
 
@@ -69,7 +84,7 @@ Until payloads carry a canonical `site_key`, the **Domain / site hint** field fi
 
 ### Slice 3 — definition of done (draft)
 
-- Operators can see **whether clusters / archetypes are stable or shifting** in the current warehouse window (counts, reassignment signal, or simple growth delta — exact metric TBD in spike).  
+- Operators can see **whether clusters / archetypes are stable or shifting** in the current warehouse window **for the focused org** (counts, reassignment signal, or simple growth delta — exact metric TBD in spike).  
 - **Guided** explains the metric; **Analyst** exposes the underlying series or JSON.  
 - Prefer **no new Postgres** unless the spike shows warehouse-only is insufficient.
 
@@ -80,5 +95,11 @@ Until payloads carry a canonical `site_key`, the **Domain / site hint** field fi
 
 ## Explorer copy / UX cleanup (shipped)
 
-- Removed legacy **Challenge module** controls from the behavioral cloud and dimension strips; charts use **all kinetic rows** in the current warehouse load (date range and cloud granularity unchanged).  
+- Removed legacy **Challenge module** controls from the behavioral cloud and dimension strips; charts use **all kinetic rows** in the current warehouse load (date range and cloud granularity unchanged). Once **single-org focus** ships, that row set is interpreted as **within the focused org** (or explicit all-orgs mode).  
 - Warehouse field **`challenge_module`** and **`resolveChallengeModule`** remain for row typing, prototype lanes, and saved prototype metadata; saved prototypes store `filters.challenge_module` as empty unless the API is extended later.
+
+## Single-org focus — implementation (planned; not shipped)
+
+- Wire **one primary org** control to: in-memory row set after fetch (Phase A), `getMasterOrgSlugForSave`, friction/snippet/FS internal URLs, and gold override semantics (avoid divergent “bag vs API org”).  
+- Files likely touched: [collector/admin-portal/master-dash/index.html](collector/admin-portal/master-dash/index.html), [dashboard.js](collector/admin-portal/master-dash/dashboard.js), [friction-triage.js](collector/admin-portal/master-dash/js/friction-triage.js); optional [collector/collector.js](collector/collector.js) + [tenant-db.js](collector/tenant-db.js) for Phase B query params.  
+- Mirror changes in [lab_console/](lab_console/) HTML/JS if those entrypoints remain supported.
