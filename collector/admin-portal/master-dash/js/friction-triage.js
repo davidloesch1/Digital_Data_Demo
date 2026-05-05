@@ -439,6 +439,10 @@
                 aggregates: agg,
                 friction_context_sample: frictionRows.slice(0, 5),
                 review_queue: queue,
+                session_timeline_dive:
+                    g.NexusSessionTimelineDive && g.NexusSessionTimelineDive.getAnalystSnapshot
+                        ? g.NexusSessionTimelineDive.getAnalystSnapshot()
+                        : null,
             });
 
             await fetchSnippetRuntimeConfigJson();

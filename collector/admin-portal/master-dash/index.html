@@ -191,6 +191,37 @@
                         </div>
                     </div>
                     <div class="dash-friction-card dash-friction-card--wide">
+                        <h3 class="dash-friction-card__title">Session timeline (slice 2)</h3>
+                        <p class="dash-friction-card__hint dash-friction-guided">
+                            One chronological view: kinetic captures (label, silent signals, nearest prototype) plus
+                            FullStory events for the same session or visitor focus. Uses data already loaded by the
+                            collector; upload a FullStory CSV or use replay-linked captures for FS rows.
+                        </p>
+                        <p id="dash-session-timeline-scope" class="dash-session-timeline__scope" aria-live="polite"></p>
+                        <p id="dash-session-timeline-caption" class="dash-friction-freshness" aria-live="polite"></p>
+                        <div class="dash-friction-table-wrap dash-session-timeline__wrap">
+                            <table class="dash-friction-table" aria-label="Merged session timeline">
+                                <thead>
+                                    <tr>
+                                        <th>Time (UTC)</th>
+                                        <th>Source</th>
+                                        <th>Summary</th>
+                                        <th>Signals / detail</th>
+                                        <th>Prototype</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dash-session-timeline-body"></tbody>
+                            </table>
+                        </div>
+                        <p class="dash-session-timeline__explore">
+                            <button type="button" id="dash-session-timeline-scroll-explore" class="btn-refresh btn-refresh--small">
+                                Jump to chart timeline below
+                            </button>
+                            <span class="dash-friction-guided dash-session-timeline__explore-hint"
+                                >Same focus drives the prototype timeline and radar in Exploration.</span>
+                        </p>
+                    </div>
+                    <div class="dash-friction-card dash-friction-card--wide">
                         <h3 class="dash-friction-card__title">Snippet runtime config (read-only)</h3>
                         <pre id="dash-snippet-runtime-preview" class="dash-snippet-runtime-preview"></pre>
                     </div>
@@ -611,6 +642,7 @@
     <script src="data-cards/data-model.js"></script>
     <script src="data-cards/radar-archetype.js"></script>
     <script src="js/friction-triage.js"></script>
+    <script src="js/session-timeline-dive.js"></script>
     <script src="dashboard.js"></script>
 </body>
 </html>

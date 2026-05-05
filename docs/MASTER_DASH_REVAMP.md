@@ -17,11 +17,17 @@ Incremental revamp of [collector/admin-portal/master-dash/](collector/admin-port
 2. For this org/domain/environment, what time range should we trust by default—and how stale is the data?  
 3. Where is friction concentrated in the current window, and which silent-signal kinds show up?  
 4. Which sessions look worth reviewing first (heuristic: friction signals + prototype uncertainty)?  
-5. Session timeline deep-dive — **slice 2**.  
+5. Session timeline deep-dive — **slice 2** (shipped: merged kinetic + FullStory table in Friction shell).  
 6. Cluster growth — **later**.  
 7. Unified pattern library — **later** (partial today: Gold card + cluster tags).  
 8. Compare week-over-week — **after overview compare**.  
 9. Stakeholder export — **low priority**.
+
+## Slice 2 — definition of done
+
+- With **session** or **visitor** focus (same as Exploration scope), the **Session timeline (slice 2)** card lists kinetic rows (label, `signal_buffer` summary, nearest prototype when prototypes are loaded) and ingested **FullStory** events with parseable timestamps, **sorted by time**.  
+- **Guided** copy explains sources and the jump control to the chart timeline; **Analyst** JSON includes `session_timeline_dive` (counts + preview rows).  
+- **No new collector endpoints**: the view composes `warehouse.jsonl` rows already in memory plus `lastFsEvents` from existing `GET /v1/fullstory/events` (or internal equivalent).
 
 ## Slice 1 — definition of done
 
@@ -51,3 +57,8 @@ Until payloads carry a canonical `site_key`, the **Domain / site hint** field fi
 - Shell + cards + queue: [collector/admin-portal/master-dash/index.html](collector/admin-portal/master-dash/index.html), [collector/admin-portal/master-dash/css/dashboard.css](collector/admin-portal/master-dash/css/dashboard.css)  
 - Logic: [collector/admin-portal/master-dash/js/friction-triage.js](collector/admin-portal/master-dash/js/friction-triage.js), wired from [collector/admin-portal/master-dash/dashboard.js](collector/admin-portal/master-dash/dashboard.js) after warehouse loads  
 - Collector origin defaults: [collector/admin-portal/master-dash/js/nexus-env.js](collector/admin-portal/master-dash/js/nexus-env.js) (prefer same-origin / localhost over a fixed remote URL)
+
+## Implementation (slice 2 shipped in repo)
+
+- Session timeline card + styles: same [index.html](collector/admin-portal/master-dash/index.html) / [dashboard.css](collector/admin-portal/master-dash/css/dashboard.css)  
+- Merge + render: [collector/admin-portal/master-dash/js/session-timeline-dive.js](collector/admin-portal/master-dash/js/session-timeline-dive.js); `init` / `refresh` from [dashboard.js](collector/admin-portal/master-dash/dashboard.js); analyst field from [friction-triage.js](collector/admin-portal/master-dash/js/friction-triage.js)

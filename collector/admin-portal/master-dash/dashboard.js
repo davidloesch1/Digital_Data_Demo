@@ -2043,6 +2043,9 @@
     async function refreshScopedChartsAfterFs() {
         await fetchFsEventsForScope();
         refreshScopedCharts();
+        if (window.NexusSessionTimelineDive && window.NexusSessionTimelineDive.refresh) {
+            window.NexusSessionTimelineDive.refresh();
+        }
     }
 
     async function fetchBehaviorPrototypesList() {
@@ -2808,9 +2811,14 @@
             refreshScopedCharts();
             populatePrototypeOrgSelect([]);
             setStatus(true, "Warehouse reachable · empty");
-            if (window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll) {
-                void window.NexusFrictionTriage.refreshAll();
-            }
+            var frictionEmpty = window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll
+                ? window.NexusFrictionTriage.refreshAll()
+                : Promise.resolve();
+            void frictionEmpty.then(function () {
+                if (window.NexusSessionTimelineDive && window.NexusSessionTimelineDive.refresh) {
+                    window.NexusSessionTimelineDive.refresh();
+                }
+            });
             return;
         }
 
@@ -2932,9 +2940,14 @@
                 " warehouse rows" +
                 (MASTER_ORG_SCOPE ? " (all local orgs)" : "")
         );
-        if (window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll) {
-            void window.NexusFrictionTriage.refreshAll();
-        }
+        var frictionDone = window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll
+            ? window.NexusFrictionTriage.refreshAll()
+            : Promise.resolve();
+        void frictionDone.then(function () {
+            if (window.NexusSessionTimelineDive && window.NexusSessionTimelineDive.refresh) {
+                window.NexusSessionTimelineDive.refresh();
+            }
+        });
     }
 
     function populatePrototypeOrgSelect(rows) {
@@ -3335,6 +3348,33 @@
         var bgs = $("btn-dash-gold-save");
         if (bgs) bgs.onclick = saveGoldStandardFromUi;
 
+        if (window.NexusSessionTimelineDive) {
+            window.NexusSessionTimelineDive.init({
+                getViewScope: function () {
+                    return viewScope;
+                },
+                getLastFsEvents: function () {
+                    return lastFsEvents;
+                },
+                getGlobalSessions: function () {
+                    return globalSessions;
+                },
+                getKineticPoints: function () {
+                    return lastKineticPoints;
+                },
+                getM: function () {
+                    return M;
+                },
+                collectVisitorRows: function (uk) {
+                    return collectRowsForVisitorKey(uk);
+                },
+                scrollToChartTimeline: function () {
+                    var c = $("prototype-timeline");
+                    var host = c && c.closest(".dash-extra-card");
+                    if (host) host.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                },
+            });
+        }
         if (window.NexusFrictionTriage) {
             window.NexusFrictionTriage.init({
                 getToken: getMasterInternalAdminToken,
@@ -3368,9 +3408,15 @@
                 getDateRangeLabel: getDateRangeLabelForFriction,
             });
             function refreshFrictionShell() {
+                var p = Promise.resolve();
                 if (window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll) {
-                    void window.NexusFrictionTriage.refreshAll();
+                    p = window.NexusFrictionTriage.refreshAll();
                 }
+                void p.then(function () {
+                    if (window.NexusSessionTimelineDive && window.NexusSessionTimelineDive.refresh) {
+                        window.NexusSessionTimelineDive.refresh();
+                    }
+                });
             }
             var po = $("dash-prototype-org");
             if (po) po.addEventListener("change", refreshFrictionShell);
