@@ -37,7 +37,7 @@ This plan serves as the "source of truth" for the platform's technical and philo
 
 ### Phase 3: The Command Deck (Retool & HITL)
 *Focus: Closing the loop between AI math and human meaning.*
-* [ ] **Deep-Link Integration:** Wire the **FullStory Generate Context API** to a "Watch Highlights" button.
+* [ ] **Deep-Link Integration:** Wire the **FullStory Generate Context API** to a "Watch Highlights" button. *(Collector ships **`POST /internal/v1/fullstory/generate-context`** — see **`docs/FULLSTORY_ACTIVATION.md`**; UI / Retool wiring TBD.)*
 * [ ] **The Verification UI:** Build a labeling interface where an Overseer can tag clusters as *Confusion, Comparison, Hesitation, or Analysis*.
 * [ ] **Gold Standard Export:** Create a one-click "Verify" action that pushes human-labeled vectors to the `gold_standard_vectors` table.
 

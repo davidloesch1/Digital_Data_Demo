@@ -9,6 +9,7 @@ const readline = require('readline');
 const tenantDbApi = require('./tenant-db.js');
 const { mountConsoleBffRoutes } = require('./console-bff.js');
 const { mountV1DashboardRoutes, addInternalDashboardRoutes } = require('./dashboard-routes.js');
+const fsActivation = require('./fullstory-activation-proxy.js');
 
 /** @type {{ pool: import('pg').Pool; pepper: string } | null} */
 let tenantContext = null;
@@ -163,7 +164,7 @@ app.get('/', (_req, res) => {
     ) {
         body.internal_admin_portal = 'GET /internal/admin';
         body.internal_admin_api =
-            'GET /internal/v1/orgs | GET /internal/v1/master-summary | POST /internal/v1/orgs | GET|POST|DELETE /internal/v1/orgs/:slug/console-members | GET|PATCH /internal/v1/orgs/:slug/snippet-runtime-config | GET|POST /internal/v1/orgs/:slug/friction-context | POST /internal/v1/keys/revoke';
+            'GET /internal/v1/orgs | GET /internal/v1/master-summary | POST /internal/v1/orgs | GET|POST|DELETE /internal/v1/orgs/:slug/console-members | GET|PATCH /internal/v1/orgs/:slug/snippet-runtime-config | GET|POST /internal/v1/orgs/:slug/friction-context | POST /internal/v1/fullstory/generate-context | POST /internal/v1/keys/revoke';
     }
     if (tenantContext && process.env.CONSOLE_BFF_SECRET && String(process.env.CONSOLE_BFF_SECRET).trim() !== '') {
         body.console_bff =
@@ -847,6 +848,44 @@ function mountInternalAdminRoutes(app) {
         }
     });
 
+    /**
+     * Proxy to FullStory **Generate Context** (Sessions API v2). Requires `FULLSTORY_API_KEY` on the collector.
+     * Body: `{ session_id?, session_url?, context?: { ... } }` — at least one of `session_id` or parseable `session_url`.
+     */
+    router.post('/fullstory/generate-context', async (req, res) => {
+        if (!process.env.FULLSTORY_API_KEY || String(process.env.FULLSTORY_API_KEY).trim() === '') {
+            return res.status(503).json({
+                error: 'FULLSTORY_API_KEY not configured',
+                hint: 'Set FullStory Operations API key (Admin/Architect) on the collector. See docs/FULLSTORY_ACTIVATION.md',
+            });
+        }
+        const b = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : {};
+        const session_id = b.session_id;
+        const session_url = b.session_url;
+        const context = b.context;
+        try {
+            const fullstory = await fsActivation.generateContext({
+                sessionId: session_id,
+                sessionUrl: session_url,
+                contextPayload: context,
+            });
+            res.status(200).json({ ok: true, fullstory });
+        } catch (e) {
+            if (e && e.code === 'EINVAL') {
+                return res.status(400).json({ error: e.message });
+            }
+            if (e && e.code === 'NO_FS_KEY') {
+                return res.status(503).json({ error: e.message });
+            }
+            const status = e && e.status >= 400 && e.status < 600 ? e.status : 502;
+            console.error('internal POST fullstory/generate-context:', e.message || e);
+            res.status(status).json({
+                error: e.message || 'FullStory request failed',
+                fullstory: e.body || null,
+            });
+        }
+    });
+
     /** Same warehouse rows as GET /local/v1/master-summary; gated by INTERNAL_ADMIN_TOKEN (internal admin UI). */
     router.get('/master-summary', async (req, res) => {
         const limit = parseSummaryLimit(req);
@@ -871,7 +910,7 @@ function mountInternalAdminRoutes(app) {
 
     app.use('/internal/v1', router);
     console.log(
-        'Collector: internal admin API at /internal/v1/orgs, GET /internal/v1/master-summary, /orgs/:slug/console-members, GET|PATCH /orgs/:slug/snippet-runtime-config, GET|POST /orgs/:slug/friction-context, POST /keys/revoke (INTERNAL_ADMIN_TOKEN)'
+        'Collector: internal admin API at /internal/v1/orgs, GET /internal/v1/master-summary, /orgs/:slug/console-members, GET|PATCH /orgs/:slug/snippet-runtime-config, GET|POST /orgs/:slug/friction-context, POST /fullstory/generate-context, POST /keys/revoke (INTERNAL_ADMIN_TOKEN)'
     );
 }
 

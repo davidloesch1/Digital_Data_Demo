@@ -45,5 +45,6 @@ Set on the **collector** service (see **`docs/PRODUCTION_ORGS.md`**):
 - `CORS_ORIGINS`
 - `DISABLE_LEGACY_FILE_WAREHOUSE=true` when using only `/v1/*`
 - `DISABLE_FRICTION_AUTOTRACK=true` — skip auto-append to **`nexus_friction_context`** on **`POST /v1/ingest`** when **`signal_buffer`** contains **CONFUSION** or **DWELL** (default: autotrack on)
+- **`FULLSTORY_API_KEY`** (optional) — FullStory Operations key for **`POST /internal/v1/fullstory/generate-context`** (see **`docs/FULLSTORY_ACTIVATION.md`**)
 
 Then **`GET /health`** on your public URL.
