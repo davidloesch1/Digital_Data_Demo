@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-COPY tenant-db.js collector.js console-bff.js console-jwt.js dashboard-routes.js fullstory-csv.js ./
+COPY tenant-db.js collector.js console-bff.js console-jwt.js dashboard-routes.js fullstory-csv.js fullstory-activation-proxy.js ./
 COPY sdk ./sdk/
 COPY admin-portal ./admin-portal/
 
