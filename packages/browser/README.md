@@ -1,8 +1,8 @@
 # Nexus browser snippet
 
-Minimal integration: load **FullStory** first, then **`nexus-snippet.js`**. Each flush emits a **FullStory analytics event** via **`FS('trackEvent', { name, properties })`** ([Analytics Events](https://developer.fullstory.com/browser/capture-events/analytics-events/)) with a **16-number `fingerprint`**, `event_id`, `label`, `timestamp`, and **`session_url`** (prefers **`FS.getCurrentSessionURL(true)`** when available).
+Minimal integration: load **FullStory** first, then **`nexus-snippet.js`**. Each flush emits a **FullStory analytics event** via **`FS('trackEvent', { name, properties })`** ([Analytics Events](https://developer.fullstory.com/browser/capture-events/analytics-events/)) with a **16-number `fingerprint`**, `event_id`, `label`, `timestamp`, **`session_url`** (prefers **`FS.getCurrentSessionURL(true)`** when available), **`signal_schema_version`**, **`signal_buffer_json`** (stringified rolling buffer of silent signals + flushes), and flattened **`surface_*`** fields from **`css_meta`** (viewport, DPR, color scheme, reduced-motion, root font size).
 
-**Collector POST** (`POST /v1/ingest`) is **optional**: set **`window.NEXUS_DUAL_WRITE = true`** and configure **`NEXUS_PUBLISHABLE_KEY`** + **`NEXUS_API_BASE`** / **`NEXUS_COLLECT_BASE`** so the same JSON body is also sent to the warehouse (same shape as before, without `challenge_module` on new captures).
+**Collector POST** (`POST /v1/ingest`) is **optional**: set **`window.NEXUS_DUAL_WRITE = true`** and configure **`NEXUS_PUBLISHABLE_KEY`** + **`NEXUS_API_BASE`** / **`NEXUS_COLLECT_BASE`** so the same JSON body is also sent to the warehouse (`signal_buffer` as JSON array, `css_meta` object, plus the same `signal_schema_version`).
 
 ## Prerequisites (FS-first)
 
@@ -23,7 +23,9 @@ Use **HTTPS** in production.
   //   event_name: "nexus_kinetic_fingerprint",  // FS event name; max 250 chars
   //   flushMs: 8000,  // clamped 2000–60000; default ~7.5 events/min (under FS ~60/user/page/min)
   //   disabled: false,
+  //   heuristics: { hoverLongMs: 1500, dwellIdleMs: 3000, confusionMinPathPx: 2000, signalBufferMax: 20 },
   // };
+  // window.NEXUS_HEURISTICS = { dwellEnabled: false };  // optional; overrides NexusSnippet.heuristics
   // window.NEXUS_USER_KEY = "visitor-stable-id";  // optional; sent as a property
   // window.NEXUS_DUAL_WRITE = true;  // optional; also POST to collector:
   // window.NEXUS_PUBLISHABLE_KEY = "nx_pub_…";
@@ -48,7 +50,7 @@ FullStory documents roughly **60 events per user per page per minute** (with bur
 ## Behavior
 
 - Samples **`mousemove`**, **`wheel`**, **`click`** on **`document`** (passive where possible).
-- Every **`flushMs`**, on tab hide, and on **`pagehide`**, builds one payload and calls **`FS('trackEvent', …)`** (and optionally **`fetch`** to the collector when **`NEXUS_DUAL_WRITE`** is set).
+- Every **`flushMs`**, on tab hide, and on **`pagehide`**, builds one payload (including **`signal_buffer`** / **`css_meta`**) and calls **`FS('trackEvent', …)`** (and optionally **`fetch`** to the collector when **`NEXUS_DUAL_WRITE`** is set). Heuristic thresholds can be tuned via **`NexusSnippet.heuristics`** or **`window.NEXUS_HEURISTICS`** (see **`NEXUS_PLAN.md`** Phase 1).
 - Exposes **`window.NexusSnippetFlush()`** for a manual flush.
 
 ## Files

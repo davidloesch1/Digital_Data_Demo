@@ -13,8 +13,10 @@
  *
  * Optional: window.NexusSnippet = {
  *   disabled, flushMs, label,
- *   event_name: string (default 'nexus_kinetic_fingerprint', max 250 chars for FS)
+ *   event_name: string (default 'nexus_kinetic_fingerprint', max 250 chars for FS),
+ *   heuristics: { hoverLongMs, dwellIdleMs, confusionWindowMs, … } — see NEXUS_PLAN progressive rollout
  * }
+ * Optional: window.NEXUS_HEURISTICS — same keys as heuristics; wins over NexusSnippet.heuristics
  * Optional: window.NEXUS_USER_KEY for per-visitor correlation in FS properties.
  */
 (function () {
@@ -68,6 +70,33 @@
     var label = (cfg.label != null && String(cfg.label).trim()) || "SITE";
     var eventNameDefault = "nexus_kinetic_fingerprint";
 
+    var snippetHeur = cfg.heuristics && typeof cfg.heuristics === "object" ? cfg.heuristics : {};
+    var winHeur = window.NEXUS_HEURISTICS && typeof window.NEXUS_HEURISTICS === "object" ? window.NEXUS_HEURISTICS : {};
+
+    function heurRaw(key) {
+        if (winHeur[key] !== undefined && winHeur[key] !== null) return winHeur[key];
+        if (snippetHeur[key] !== undefined && snippetHeur[key] !== null) return snippetHeur[key];
+        return undefined;
+    }
+
+    function heurNum(key, def, lo, hi) {
+        var raw = heurRaw(key);
+        if (raw === undefined) return def;
+        var n = Number(raw);
+        if (!Number.isFinite(n)) return def;
+        if (lo !== undefined && n < lo) n = lo;
+        if (hi !== undefined && n > hi) n = hi;
+        return n;
+    }
+
+    function heurBool(key, def) {
+        var raw = heurRaw(key);
+        if (raw === undefined) return def;
+        return Boolean(raw);
+    }
+
+    var SIGNAL_SCHEMA_VERSION = 1;
+
     var moves = [];
     var maxMoves = 120;
     var scrollDy = 0;
@@ -75,6 +104,190 @@
     var warnedNoKey = false;
     var warnedNoFs = false;
     var warnedNoSink = false;
+
+    /** NEXUS_PLAN Phase 1 — rolling semantic events (cap via heuristics.signalBufferMax). */
+    var SIGNAL_BUFFER_MAX = Math.floor(heurNum("signalBufferMax", 20, 5, 100));
+    var signalBuffer = [];
+
+    function pushSignalEvent(rec) {
+        signalBuffer.push(rec);
+        while (signalBuffer.length > SIGNAL_BUFFER_MAX) signalBuffer.shift();
+    }
+
+    /** Minimal element description — no id/class (PII risk per NEXUS_PLAN). */
+    function coarseElementHint(el) {
+        if (!el || !el.tagName) return {};
+        var o = { tag: String(el.tagName).toLowerCase() };
+        try {
+            var r = el.getAttribute && el.getAttribute("role");
+            if (r && String(r).length <= 48) o.role = String(r);
+        } catch (_e) {}
+        return o;
+    }
+
+    /** Non-PII surface / CSS context (viewport, motion/color preferences). NEXUS_PLAN Phase 1. */
+    function buildCssMeta() {
+        var w = window.innerWidth || 0;
+        var h = window.innerHeight || 0;
+        var dpr =
+            typeof window.devicePixelRatio === "number" && window.devicePixelRatio > 0
+                ? window.devicePixelRatio
+                : 1;
+        var scheme = "unknown";
+        try {
+            if (window.matchMedia("(prefers-color-scheme: dark)").matches) scheme = "dark";
+            else if (window.matchMedia("(prefers-color-scheme: light)").matches) scheme = "light";
+        } catch (_e) {}
+        var reduced = false;
+        try {
+            reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        } catch (_e2) {}
+        var rootFs = null;
+        try {
+            if (window.getComputedStyle && document.documentElement) {
+                var st = window.getComputedStyle(document.documentElement);
+                if (st && st.fontSize) {
+                    var p = parseFloat(st.fontSize);
+                    if (Number.isFinite(p)) rootFs = Math.round(p * 10) / 10;
+                }
+            }
+        } catch (_e3) {}
+        return {
+            viewport_w: Math.round(w),
+            viewport_h: Math.round(h),
+            dpr: dpr,
+            color_scheme: scheme,
+            prefers_reduced_motion: reduced,
+            root_font_size_px: rootFs,
+        };
+    }
+
+    var enableHoverLong = heurBool("hoverLongEnabled", true);
+    var enableDwell = heurBool("dwellEnabled", true);
+    var enableConfusion = heurBool("confusionEnabled", true);
+
+    var HOVER_LONG_MS = heurNum("hoverLongMs", 1500, 200, 120000);
+    var DWELL_IDLE_MS = heurNum("dwellIdleMs", 3000, 500, 120000);
+    var CONFUSION_WINDOW_MS = heurNum("confusionWindowMs", 3000, 1000, 60000);
+    var CONFUSION_MIN_PATH_PX = heurNum("confusionMinPathPx", 2000, 100, 500000);
+    var CONFUSION_MIN_FLIPS = Math.floor(heurNum("confusionMinReversals", 3, 1, 50));
+    var CONFUSION_COOLDOWN_MS = heurNum("confusionCooldownMs", 5000, 0, 120000);
+
+    var lastPointer = { x: 0, y: 0, t: 0 };
+    var hoverLongEl = null;
+    var hoverLongTimer = null;
+    var lastActivityTs = 0;
+    var dwellEligible = true;
+    var lastConfusionTs = 0;
+
+    function clearHoverLongTimer() {
+        if (hoverLongTimer) {
+            clearTimeout(hoverLongTimer);
+            hoverLongTimer = null;
+        }
+    }
+
+    function touchActivity() {
+        lastActivityTs = Date.now();
+        dwellEligible = true;
+    }
+
+    function scheduleHoverLongCheck() {
+        if (!enableHoverLong) return;
+        clearHoverLongTimer();
+        var anchorEl = hoverLongEl;
+        if (!anchorEl) return;
+        hoverLongTimer = setTimeout(function () {
+            hoverLongTimer = null;
+            var el2 = null;
+            try {
+                el2 = document.elementFromPoint(lastPointer.x, lastPointer.y);
+            } catch (_e) {}
+            if (el2 && anchorEl && el2 === anchorEl) {
+                pushSignalEvent({
+                    kind: "HOVER_LONG",
+                    t: Date.now(),
+                    ms: HOVER_LONG_MS,
+                    target_hint: coarseElementHint(anchorEl),
+                });
+            }
+        }, HOVER_LONG_MS);
+    }
+
+    function checkDwell() {
+        if (!enableDwell) return;
+        var now = Date.now();
+        if (!dwellEligible) return;
+        if (now - lastActivityTs < DWELL_IDLE_MS) return;
+        dwellEligible = false;
+        var w = window.innerWidth || 1;
+        var h = window.innerHeight || 1;
+        var cx = Math.floor(w / 2);
+        var cy = Math.floor(h / 2);
+        var centerEl = null;
+        try {
+            centerEl = document.elementFromPoint(cx, cy);
+        } catch (_e) {}
+        pushSignalEvent({
+            kind: "DWELL",
+            t: now,
+            idle_ms: now - lastActivityTs,
+            center_norm: { x: 0.5, y: 0.5 },
+            center_hint: coarseElementHint(centerEl),
+        });
+    }
+
+    function maybeConfusion() {
+        if (!enableConfusion) return;
+        var now = Date.now();
+        if (now - lastConfusionTs < CONFUSION_COOLDOWN_MS) return;
+        var n = moves.length;
+        if (n < 4) return;
+        var i;
+        var startIdx = -1;
+        for (i = 0; i < n; i++) {
+            if (now - moves[i].t <= CONFUSION_WINDOW_MS) {
+                startIdx = i;
+                break;
+            }
+        }
+        if (startIdx < 0 || n - 1 - startIdx < 3) return;
+        var path = 0;
+        var reversals = 0;
+        for (i = startIdx + 1; i < n; i++) {
+            var a = moves[i - 1];
+            var b = moves[i];
+            var dt = b.t - a.t;
+            if (dt <= 0) continue;
+            var dx = b.x - a.x;
+            var dy = b.y - a.y;
+            path += Math.sqrt(dx * dx + dy * dy);
+        }
+        for (i = startIdx + 2; i < n; i++) {
+            var p0 = moves[i - 2];
+            var p1 = moves[i - 1];
+            var p2 = moves[i];
+            var v1x = p1.x - p0.x;
+            var v1y = p1.y - p0.y;
+            var v2x = p2.x - p1.x;
+            var v2y = p2.y - p1.y;
+            var d1 = Math.sqrt(v1x * v1x + v1y * v1y);
+            var d2 = Math.sqrt(v2x * v2x + v2y * v2y);
+            if (d1 < 4 || d2 < 4) continue;
+            var dot = v1x * v2x + v1y * v2y;
+            if (dot < 0) reversals++;
+        }
+        if (path >= CONFUSION_MIN_PATH_PX && reversals >= CONFUSION_MIN_FLIPS) {
+            lastConfusionTs = now;
+            pushSignalEvent({
+                kind: "CONFUSION",
+                t: now,
+                path_px: Math.round(path),
+                dir_changes: reversals,
+                window_ms: CONFUSION_WINDOW_MS,
+            });
+        }
+    }
 
     function sessionUrl() {
         try {
@@ -165,6 +378,9 @@
             label: label,
             session_url: sessionUrl(),
             timestamp: Date.now(),
+            signal_schema_version: SIGNAL_SCHEMA_VERSION,
+            signal_buffer: signalBuffer.slice(),
+            css_meta: buildCssMeta(),
         };
         var uk =
             typeof window.NEXUS_USER_KEY === "string" && window.NEXUS_USER_KEY.trim()
@@ -203,8 +419,24 @@
             timestamp: body.timestamp,
             session_url: body.session_url,
             fingerprint: body.fingerprint,
+            signal_schema_version: body.signal_schema_version,
         };
         if (body.nexus_user_key) props.nexus_user_key = body.nexus_user_key;
+
+        var bufStr = "";
+        try {
+            bufStr = JSON.stringify(body.signal_buffer || []);
+        } catch (_eb) {}
+        if (bufStr.length > 24000) bufStr = bufStr.slice(0, 24000);
+        props.signal_buffer_json = bufStr;
+
+        var cm = body.css_meta || {};
+        props.surface_viewport_w = cm.viewport_w;
+        props.surface_viewport_h = cm.viewport_h;
+        props.surface_dpr = cm.dpr;
+        props.surface_color_scheme = cm.color_scheme;
+        props.surface_reduced_motion = cm.prefers_reduced_motion;
+        if (cm.root_font_size_px != null) props.surface_root_font_px = cm.root_font_size_px;
 
         try {
             window.FS("trackEvent", { name: name, properties: props });
@@ -250,7 +482,20 @@
         }
     }
 
-    function flushSend() {
+    function flushSend(reason) {
+        var why =
+            reason !== undefined && reason !== null && String(reason).trim() !== ""
+                ? String(reason).trim()
+                : "manual";
+        pushSignalEvent({
+            kind: "FLUSH",
+            t: Date.now(),
+            flush_reason: why,
+            moves_in_window: moves.length,
+            scroll_delta_sum: scrollDy,
+            clicks_in_window: clicks,
+        });
+
         var body = ingestBody();
         var okFs = trackToFullStory(body);
         postToCollector(body);
@@ -277,28 +522,73 @@
             requestAnimationFrame(function () {
                 moveScheduled = false;
                 try {
+                    lastPointer.x = ev.clientX;
+                    lastPointer.y = ev.clientY;
+                    lastPointer.t = Date.now();
+                    touchActivity();
+
                     moves.push({
-                        t: Date.now(),
-                        x: ev.clientX,
-                        y: ev.clientY,
+                        t: lastPointer.t,
+                        x: lastPointer.x,
+                        y: lastPointer.y,
                     });
                     if (moves.length > maxMoves) moves.shift();
+
+                    if (enableHoverLong) {
+                        var el = null;
+                        try {
+                            el = document.elementFromPoint(lastPointer.x, lastPointer.y);
+                        } catch (_e) {}
+                        if (el !== hoverLongEl) {
+                            hoverLongEl = el;
+                            clearHoverLongTimer();
+                            if (el) scheduleHoverLongCheck();
+                        }
+                    } else {
+                        hoverLongEl = null;
+                        clearHoverLongTimer();
+                    }
+
+                    maybeConfusion();
                 } catch (_e) {}
             });
         } else {
             moveScheduled = false;
-            moves.push({ t: Date.now(), x: ev.clientX, y: ev.clientY });
-            if (moves.length > maxMoves) moves.shift();
+            try {
+                lastPointer.x = ev.clientX;
+                lastPointer.y = ev.clientY;
+                lastPointer.t = Date.now();
+                touchActivity();
+                moves.push({ t: lastPointer.t, x: lastPointer.x, y: lastPointer.y });
+                if (moves.length > maxMoves) moves.shift();
+                if (enableHoverLong) {
+                    var el = null;
+                    try {
+                        el = document.elementFromPoint(lastPointer.x, lastPointer.y);
+                    } catch (_e2) {}
+                    if (el !== hoverLongEl) {
+                        hoverLongEl = el;
+                        clearHoverLongTimer();
+                        if (el) scheduleHoverLongCheck();
+                    }
+                } else {
+                    hoverLongEl = null;
+                    clearHoverLongTimer();
+                }
+                maybeConfusion();
+            } catch (_e3) {}
         }
     }
 
     function onWheel(ev) {
+        touchActivity();
         try {
             scrollDy += ev.deltaY || 0;
         } catch (_e) {}
     }
 
     function onClick() {
+        touchActivity();
         clicks++;
     }
 
@@ -309,14 +599,20 @@
     }
 
     function wire() {
+        lastActivityTs = Date.now();
         document.addEventListener("mousemove", onMove, { passive: true });
         document.addEventListener("wheel", onWheel, { passive: true });
         document.addEventListener("click", onClick, true);
-        setInterval(flushSend, flushMs);
+        setInterval(checkDwell, 1000);
+        setInterval(function () {
+            flushSend("interval");
+        }, flushMs);
         document.addEventListener("visibilitychange", function () {
-            if (document.visibilityState === "hidden") flushSend();
+            if (document.visibilityState === "hidden") flushSend("visibility");
         });
-        window.addEventListener("pagehide", flushSend);
+        window.addEventListener("pagehide", function () {
+            flushSend("pagehide");
+        });
     }
 
     window.NexusSnippetFlush = flushSend;

@@ -9,14 +9,22 @@ This plan serves as the "source of truth" for the platform's technical and philo
 
 ## 🏗️ The 4-Phase Roadmap
 
-### Phase 1: The Sensor Upgrade (`collector.js`)
+### Phase 1: The Sensor Upgrade (browser `nexus-snippet.js`; server `collector/` for ingest)
 *Focus: Capturing high-resolution behavioral intent at the source.*
-* [ ] **Client-Side Buffer:** Implement a 20-event rolling array in `collector.js` to store the recent event stream.
-* [ ] **Heuristic Signal Layer:** Code the "Silent Signal" logic:
+* [x] **Client-Side Buffer:** Implement a rolling (default 20) event array in **`packages/browser/nexus-snippet.js`** (mirrored at **`collector/sdk/nexus-snippet.js`**) to store the recent event stream.
+* [x] **Heuristic Signal Layer:** Code the "Silent Signal" logic:
     * **HOVER_LONG:** `mouseenter` > 1500ms > No `mouseleave`.
     * **DWELL:** Zero activity for >3000ms + Viewport Center identification.
     * **CONFUSION:** High velocity + rapid direction changes ($>2000px$ in 3s).
-* [ ] **Enriched Payload:** Update the `FS('trackEvent')` to bundle the **16D Vector**, the **Signal Buffer**, and **CSS Metadata**.
+* [x] **Enriched Payload:** Update the `FS('trackEvent')` to bundle the **16D Vector**, the **Signal Buffer**, and **CSS Metadata**.
+
+**Progressive rollout (heuristics → config)** — keep Phase 1 aligned with `docs/PRODUCT_VISION.md` without skipping “learn in production”:
+
+1. **Defaults in the snippet** — ship NEXUS_PLAN thresholds in code; keep each silent signal as a small, isolated block of logic.
+2. **Optional `window.NexusSnippet` / `window.NEXUS_HEURISTICS` overrides** — per-site or per-lab tuning (thresholds, toggles) before any new backend contract.
+3. **`signal_schema_version` on emitted payloads** — when the signal buffer ships on `trackEvent` / ingest, version the JSON shape so BigQuery and dashboards stay stable as fields evolve.
+4. **`GET /v1/config`** — org-scoped thresholds and feature flags **merged over defaults**, short-TTL cache, degrade to defaults if the fetch fails.
+5. **`PATCH /v1/settings`** (or internal-only tuning first) — only after multi-tenant ingest, auth, and basic ops are boringly reliable.
 
 ### Phase 2: The Platinum Schema (BigQuery)
 *Focus: Wiring math to visual reality across multiple domains.*

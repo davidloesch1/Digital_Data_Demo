@@ -40,6 +40,8 @@ Customers embed a **lightweight loader** on their properties. The loader:
 - Apply config to the worker (energy gate, inference cadence, etc.) instead of hard-coding only in-repo constants.
 - Degrade gracefully: cached defaults + retry if config fetch fails.
 
+**Heuristic / silent-signal rollout** is staged in **`NEXUS_PLAN.md`** (Phase 1 — *Progressive rollout*): in-snippet defaults → optional `window.NexusSnippet` (or `NEXUS_HEURISTICS`) overrides → `signal_schema_version` on payloads → `GET /v1/config` merge + cache → `PATCH /v1/settings` once ops are stable.
+
 ---
 
 ## 2. Org IDs and data partitioning
