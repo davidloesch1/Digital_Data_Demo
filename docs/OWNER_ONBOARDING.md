@@ -12,6 +12,8 @@ You **provision every org** (nothing self-serve here). This doc is the checklist
 | Internal admin | `INTERNAL_ADMIN_TOKEN` set on collector → portal at **`https://<collector>/internal/admin`**. |
 | CORS | Collector **`CORS_ORIGINS`** includes **each customer site origin** (scheme + host + port) and your **hosted console** origin if the browser calls the collector directly from either. |
 
+Engineering verification (ingest → friction → gold): [docs/SMOKE_NEXUS_STACK.md](SMOKE_NEXUS_STACK.md).
+
 ---
 
 ## 1. Create an organization

@@ -7,6 +7,8 @@
     "start": "node collector.js",
     "create-org": "node scripts/create-org.js",
     "revoke-key": "node scripts/revoke-key.js",
+    "smoke-nexus": "node scripts/smoke-nexus-stack.js",
+    "gold-nearest": "node scripts/gold-nearest-neighbors.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

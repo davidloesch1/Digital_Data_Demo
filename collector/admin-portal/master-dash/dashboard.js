@@ -2142,6 +2142,156 @@
         }
     }
 
+    async function addOverseerClusterTagFromUi() {
+        var cid = $("dash-cohort-cluster-select") && $("dash-cohort-cluster-select").value;
+        var valEl = $("dash-cluster-tag-value");
+        var kindEl = $("dash-cluster-tag-kind");
+        var value = valEl ? String(valEl.value || "").trim() : "";
+        var tagKind = kindEl && kindEl.value ? String(kindEl.value).trim() : "note";
+        if (!cid) {
+            alert("Select a saved prototype in the Prototype dropdown first.");
+            return;
+        }
+        if (!value) {
+            alert("Enter an Overseer label (e.g. Confusion).");
+            return;
+        }
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1 && !getMasterOrgSlugForSave()) {
+            alert("Select organization (master).");
+            return;
+        }
+        var url = clusterApiPostUrl("/clusters/" + encodeURIComponent(cid) + "/tags");
+        if (DIRECT_SUMMARY_URL && DIRECT_SUMMARY_URL.indexOf("/internal/v1/") !== -1) {
+            url += "?org_slug=" + encodeURIComponent(getMasterOrgSlugForSave());
+        }
+        try {
+            var res = await fetch(url, {
+                method: "POST",
+                headers: clusterAuthHeadersJson(),
+                body: JSON.stringify({ tag_kind: tagKind, value: value }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            await res.json();
+            await fetchBehaviorPrototypesList();
+            enrichKineticPrototypes();
+            refreshScopedCharts();
+            alert("Tag saved on prototype.");
+        } catch (e) {
+            console.error(e);
+            alert("Tag failed: " + (e && e.message ? e.message : e));
+        }
+    }
+
+    function getEffectiveOrgSlugForInternal() {
+        var g = $("dash-gold-org-slug");
+        if (g && String(g.value || "").trim()) return String(g.value).trim();
+        return getMasterOrgSlugForSave();
+    }
+
+    /** Collector origin for internal admin routes (gold, friction, etc.). */
+    function masterInternalApiOrigin() {
+        var root = API_BASE.replace(/\/?$/, "");
+        if (DIRECT_SUMMARY_URL && String(DIRECT_SUMMARY_URL).trim() !== "") {
+            try {
+                root = new URL(DIRECT_SUMMARY_URL).origin;
+            } catch (_e) {}
+        }
+        return root;
+    }
+
+    function requireContextForGoldApis() {
+        if (!getMasterInternalAdminToken()) {
+            alert("Save internal admin token in the sidebar first.");
+            return false;
+        }
+        if (!getEffectiveOrgSlugForInternal()) {
+            alert("Enter org slug (Gold card override) or select master organization.");
+            return false;
+        }
+        return true;
+    }
+
+    async function refreshGoldStandardList() {
+        if (!requireContextForGoldApis()) return;
+        var slug = getEffectiveOrgSlugForInternal();
+        var url =
+            masterInternalApiOrigin() +
+            "/internal/v1/orgs/" +
+            encodeURIComponent(slug) +
+            "/gold-standard-vectors?limit=25";
+        var st = $("dash-gold-status");
+        var pre = $("dash-gold-list-pre");
+        if (st) st.textContent = "Loading…";
+        try {
+            var res = await fetch(url, {
+                headers: { Authorization: "Bearer " + getMasterInternalAdminToken() },
+            });
+            if (!res.ok) throw new Error(await res.text());
+            var j = await res.json();
+            if (pre) pre.textContent = JSON.stringify(j.rows || [], null, 2);
+            if (st) st.textContent = "OK — " + (j.rows && j.rows.length ? j.rows.length + " row(s)" : "0 rows");
+        } catch (e) {
+            if (st) st.textContent = "Error.";
+            console.error(e);
+            alert("Gold list failed: " + (e && e.message ? e.message : e));
+        }
+    }
+
+    async function saveGoldStandardFromUi() {
+        if (!requireContextForGoldApis()) return;
+        var slug = getEffectiveOrgSlugForInternal();
+        var labelEl = $("dash-gold-label");
+        var label = labelEl ? String(labelEl.value || "").trim() : "";
+        if (!label) {
+            alert("Enter a label.");
+            return;
+        }
+        var fpText = $("dash-gold-fingerprint-json") ? String($("dash-gold-fingerprint-json").value || "").trim() : "";
+        var fingerprint;
+        try {
+            fingerprint = JSON.parse(fpText);
+        } catch (_e) {
+            alert("Fingerprint must be valid JSON array.");
+            return;
+        }
+        if (!Array.isArray(fingerprint) || fingerprint.length !== 16) {
+            alert("Fingerprint must be a JSON array of exactly 16 numbers.");
+            return;
+        }
+        var notesEl = $("dash-gold-notes");
+        var vbEl = $("dash-gold-verified-by");
+        var body = {
+            fingerprint: fingerprint,
+            label: label,
+            notes: notesEl && notesEl.value ? String(notesEl.value) : undefined,
+            verified_by: vbEl && vbEl.value ? String(vbEl.value).trim() : undefined,
+        };
+        var url =
+            masterInternalApiOrigin() +
+            "/internal/v1/orgs/" +
+            encodeURIComponent(slug) +
+            "/gold-standard-vectors";
+        var st = $("dash-gold-status");
+        if (st) st.textContent = "Saving…";
+        try {
+            var res = await fetch(url, {
+                method: "POST",
+                headers: {
+                    Authorization: "Bearer " + getMasterInternalAdminToken(),
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            if (st) st.textContent = "Saved.";
+            await refreshGoldStandardList();
+        } catch (e) {
+            if (st) st.textContent = "Error.";
+            console.error(e);
+            alert("Save gold failed: " + (e && e.message ? e.message : e));
+        }
+    }
+
     async function applySegmentationFromUi() {
         var cid = $("dash-segment-cohort-id") && String($("dash-segment-cohort-id").value || "").trim();
         var raw = $("dash-seg-vars") && String($("dash-seg-vars").value || "").trim();
@@ -3162,6 +3312,12 @@
         if (bsnap) bsnap.onclick = snapshotCohortFromUi;
         var bseg = $("btn-dash-apply-segmentation");
         if (bseg) bseg.onclick = applySegmentationFromUi;
+        var btag = $("btn-dash-cluster-add-tag");
+        if (btag) btag.onclick = addOverseerClusterTagFromUi;
+        var bgf = $("btn-dash-gold-refresh");
+        if (bgf) bgf.onclick = refreshGoldStandardList;
+        var bgs = $("btn-dash-gold-save");
+        if (bgs) bgs.onclick = saveGoldStandardFromUi;
 
         Promise.resolve()
             .then(function () {

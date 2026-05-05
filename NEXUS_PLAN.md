@@ -33,16 +33,17 @@ This plan serves as the "source of truth" for the platform's technical and philo
 
 * [ ] **FullStory Indexing:** Ensure all new custom properties are indexed and available in the BigQuery sync.
 * [ ] **The Multi-Tenant View:** Re-create `nexus_dna_discovery` to join Fingerprints with FullStory `pages` and `elements` tables, partitioned by `domain`.
-* [ ] **Contextual Table:** Create a schema to store the "Rolling Window" strings for every high-friction event. *(MVP in Postgres: **`nexus_friction_context`** + **`GET` / `POST /internal/v1/orgs/:slug/friction-context`** + **auto-row on `POST /v1/ingest`** when **`signal_buffer`** contains **CONFUSION** or **DWELL**; opt out with **`DISABLE_FRICTION_AUTOTRACK`**. Further scoring / dedupe TBD.)*
+* [x] **Contextual Table (Postgres MVP):** **`nexus_friction_context`** + **`GET` / `POST /internal/v1/orgs/:slug/friction-context`** + **auto-row on `POST /v1/ingest`** when **`signal_buffer`** contains **CONFUSION** or **DWELL** (opt out **`DISABLE_FRICTION_AUTOTRACK`**). BigQuery mirror / dedupe / scoring: TBD (see **`docs/BIGQUERY_NEXUS_SIGNALS.md`**).*
 
 ### Phase 3: The Command Deck (Retool & HITL)
 *Focus: Closing the loop between AI math and human meaning.*
-* [ ] **Deep-Link Integration:** Wire the **FullStory Generate Context API** to a "Watch Highlights" button. *(Collector ships **`POST /internal/v1/fullstory/generate-context`** — see **`docs/FULLSTORY_ACTIVATION.md`**; UI / Retool wiring TBD.)*
-* [ ] **The Verification UI:** Build a labeling interface where an Overseer can tag clusters as *Confusion, Comparison, Hesitation, or Analysis*.
-* [ ] **Gold Standard Export:** Create a one-click "Verify" action that pushes human-labeled vectors to the `gold_standard_vectors` table.
+* [ ] **Deep-Link Integration:** Wire the **FullStory Generate Context API** to a "Watch Highlights" button. *(Collector **backend**: **`POST /internal/v1/fullstory/generate-context`** — **`docs/FULLSTORY_ACTIVATION.md`**; Retool / app button TBD — see **`docs/RETOOL_NEXUS_COMMAND_DECK.md`**.)*
+* [x] **The Verification UI (minimal):** Overseer labels on **saved prototypes** via **`POST /v1/clusters/:id/tags`** (publishable key) or internal **`POST /internal/v1/clusters/:id/tags`**, plus master-dash **Add tag to prototype** — **`docs/CLUSTER_TAGS_HITL.md`**. Full Retool-dedicated labeling workspace TBD.
+* [x] **Gold Standard Export (backend):** Postgres **`gold_standard_vectors`** + **`GET` / `POST /internal/v1/orgs/:slug/gold-standard-vectors`** (see **`docs/GOLD_STANDARD_VECTORS.md`**). **Master-dash UI:** list + save on **`/internal/admin/master-dash`** (Gold card). Retool-only workspace TBD (**`docs/RETOOL_NEXUS_COMMAND_DECK.md`**).
 
 ### Phase 4: The Intelligence Refiner (Self-Learning)
 *Focus: Automating the naming and evolutionary process.*
+* [x] **Phase 4 prototype (CLI):** Top-k cosine vs Postgres **`gold_standard_vectors`** — **`npm run gold-nearest`** in **`collector/`** ([`collector/scripts/gold-nearest-neighbors.js`](collector/scripts/gold-nearest-neighbors.js)); warehouse notes in **`docs/BIGQUERY_NEXUS_SIGNALS.md`** (section 7).
 * [ ] **Centroid Mapping:** Automate the calculation of "Behavioral Centroids" using Cosine Similarity:
     $$\text{similarity} = \frac{\mathbf{A} \cdot \mathbf{B}}{\|\mathbf{A}\| \|\mathbf{B}\|}$$
 * [ ] **Auto-Labeling Service:** Implement a Vercel function that auto-names incoming fingerprints based on proximity to Gold Centroids.

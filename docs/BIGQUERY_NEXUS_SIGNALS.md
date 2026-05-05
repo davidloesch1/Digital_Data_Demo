@@ -79,3 +79,29 @@ Typical warehouse follow-up:
 ---
 
 **Operational note:** Warehouse work lives in **your** GCP / FS console; this repository ships the **browser + collector contract**. Update this doc when your canonical BigQuery table names are fixed.
+
+## 6. FullStory indexing checklist (operator)
+
+Do these in **FullStory** (names vary by product generation); goal is stable types in **Data Destinations / BigQuery** (or your export).
+
+1. Confirm custom events from **`nexus_kinetic_fingerprint`** (or your `event_name`) appear in the event catalog.
+2. Mark **analysis** (and export, if separate toggles) for each custom property you rely on: **`fingerprint`**, **`signal_buffer_json`**, **`signal_schema_version`**, **`session_url`**, **`label`**, **`surface_*`**, **`css_meta`** (or flattened keys you actually emit).
+3. After changing property shapes, **refresh** the warehouse schema or wait for the next sync; re-run any **scheduled queries** that cast JSON.
+4. Document your canonical **BQ table + JSON path** in this file (replace placeholders in section 2) so joins do not rot silently.
+
+## 7. Postgres `gold_standard_vectors` and `nexus_friction_context` in BigQuery
+
+These tables live **only in Postgres** today. To use them next to FullStory exports:
+
+| Approach | When to use |
+|----------|-------------|
+| **Batch export** (cron / Cloud Run) | `SELECT … FROM gold_standard_vectors` / `nexus_friction_context` → GCS → **BQ load** or **external table**. |
+| **Federated query** from BQ to Postgres | Small ad-hoc joins; watch latency and cost. |
+| **Mirror on write** | Collector hook or outbox (not shipped here) to push new rows to Pub/Sub. |
+
+Example **BQ external table** DDL is environment-specific (connection id, region). Sketch columns to mirror:
+
+- **`gold_standard_vectors`:** `id`, `org_id` (join to your org dimension), `fingerprint` (repeat `FLOAT64` column family or JSON, depending on load), `label`, `notes`, `verified_by`, `source_behavior_event_id`, `source_friction_context_id`, `created_at`.
+- **`nexus_friction_context`:** `id`, `org_id`, `behavior_event_id`, `session_url`, `friction_kinds`, `window_json`, `created_at`.
+
+**Phase 4 prototype (cosine vs gold, still in Postgres):** from `collector/` run **`npm run gold-nearest -- --org-slug YOUR_ORG --top 5 --fp '[…16 numbers…]'`** (see [collector/scripts/gold-nearest-neighbors.js](../collector/scripts/gold-nearest-neighbors.js)); pipe a JSON array on stdin if you omit **`--fp`**.

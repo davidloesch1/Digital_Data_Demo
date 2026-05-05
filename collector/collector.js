@@ -164,7 +164,7 @@ app.get('/', (_req, res) => {
     ) {
         body.internal_admin_portal = 'GET /internal/admin';
         body.internal_admin_api =
-            'GET /internal/v1/orgs | GET /internal/v1/master-summary | POST /internal/v1/orgs | GET|POST|DELETE /internal/v1/orgs/:slug/console-members | GET|PATCH /internal/v1/orgs/:slug/snippet-runtime-config | GET|POST /internal/v1/orgs/:slug/friction-context | POST /internal/v1/fullstory/generate-context | POST /internal/v1/keys/revoke';
+            'GET /internal/v1/orgs | GET /internal/v1/master-summary | POST /internal/v1/orgs | GET|POST|DELETE /internal/v1/orgs/:slug/console-members | GET|PATCH /internal/v1/orgs/:slug/snippet-runtime-config | GET|POST /internal/v1/orgs/:slug/friction-context | GET|POST /internal/v1/orgs/:slug/gold-standard-vectors | POST /internal/v1/fullstory/generate-context | POST /internal/v1/keys/revoke';
     }
     if (tenantContext && process.env.CONSOLE_BFF_SECRET && String(process.env.CONSOLE_BFF_SECRET).trim() !== '') {
         body.console_bff =
@@ -809,6 +809,64 @@ function mountInternalAdminRoutes(app) {
         }
     });
 
+    /** Human-verified 16D kinetic fingerprints for Phase 4 centroids (NEXUS_PLAN). */
+    router.post('/orgs/:slug/gold-standard-vectors', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+        if (!body) {
+            return res.status(400).json({ error: 'JSON object body required' });
+        }
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            const id = await tenantDbApi.insertGoldStandardVector(tenantContext.pool, org.id, {
+                fingerprint: body.fingerprint,
+                label: body.label,
+                notes: body.notes,
+                verified_by: body.verified_by,
+                source_behavior_event_id: body.source_behavior_event_id,
+                source_friction_context_id: body.source_friction_context_id,
+            });
+            res.status(201).json({ ok: true, id });
+        } catch (e) {
+            if (e && e.code === 'EINVAL') {
+                return res.status(400).json({ error: e.message || 'Invalid body' });
+            }
+            if (e && e.code === '23503') {
+                return res.status(400).json({ error: 'source_behavior_event_id or source_friction_context_id invalid' });
+            }
+            console.error('internal POST gold-standard-vectors:', e.message || e);
+            res.status(500).json({ error: 'Insert failed' });
+        }
+    });
+
+    router.get('/orgs/:slug/gold-standard-vectors', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        const limRaw = req.query && req.query.limit;
+        const lim = Math.max(1, Math.min(500, parseInt(String(limRaw || '50'), 10) || 50));
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            const rows = await tenantDbApi.listGoldStandardVectors(tenantContext.pool, org.id, lim);
+            res.setHeader('X-Gold-Limit', String(lim));
+            res.setHeader('X-Gold-Rows', String(rows.length));
+            res.status(200).json({ org_slug: org.slug, rows });
+        } catch (e) {
+            console.error('internal GET gold-standard-vectors:', e.message || e);
+            res.status(500).json({ error: 'Read failed' });
+        }
+    });
+
     router.post('/orgs', async (req, res) => {
         const slug = req.body && req.body.slug;
         const name = (req.body && req.body.name) || slug;
@@ -910,7 +968,7 @@ function mountInternalAdminRoutes(app) {
 
     app.use('/internal/v1', router);
     console.log(
-        'Collector: internal admin API at /internal/v1/orgs, GET /internal/v1/master-summary, /orgs/:slug/console-members, GET|PATCH /orgs/:slug/snippet-runtime-config, GET|POST /orgs/:slug/friction-context, POST /fullstory/generate-context, POST /keys/revoke (INTERNAL_ADMIN_TOKEN)'
+        'Collector: internal admin API at /internal/v1/orgs, GET /internal/v1/master-summary, /orgs/:slug/console-members, GET|PATCH /orgs/:slug/snippet-runtime-config, GET|POST /orgs/:slug/friction-context, GET|POST /orgs/:slug/gold-standard-vectors, POST /fullstory/generate-context, POST /keys/revoke (INTERNAL_ADMIN_TOKEN)'
     );
 }
 

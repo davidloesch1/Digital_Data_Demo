@@ -47,3 +47,9 @@ LEFT JOIN pages AS p
 -- AND TIMESTAMP_DIFF(nk.event_ts, p.page_start, SECOND) BETWEEN 0 AND 3600
 
 SELECT 1 AS placeholder_run_replace_before_execute;
+
+-- ---------------------------------------------------------------------------
+-- Optional: after ETL from Postgres, mirror `nexus_friction_context` and
+-- `gold_standard_vectors` into BigQuery tables, then join on org_id + session_url
+-- or behavior_event_id. Fingerprint column type (JSON vs ARRAY<FLOAT64>) depends
+-- on your load job; cast before cosine similarity in a scheduled query.

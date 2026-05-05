@@ -46,5 +46,8 @@ Set on the **collector** service (see **`docs/PRODUCTION_ORGS.md`**):
 - `DISABLE_LEGACY_FILE_WAREHOUSE=true` when using only `/v1/*`
 - `DISABLE_FRICTION_AUTOTRACK=true` — skip auto-append to **`nexus_friction_context`** on **`POST /v1/ingest`** when **`signal_buffer`** contains **CONFUSION** or **DWELL** (default: autotrack on)
 - **`FULLSTORY_API_KEY`** (optional) — FullStory Operations key for **`POST /internal/v1/fullstory/generate-context`** (see **`docs/FULLSTORY_ACTIVATION.md`**)
+- Human-labeled kinetic fingerprints: **`GET` / `POST /internal/v1/orgs/:slug/gold-standard-vectors`** (see **`docs/GOLD_STANDARD_VECTORS.md`**) — no extra env vars; requires **`INTERNAL_ADMIN_TOKEN`**
 
 Then **`GET /health`** on your public URL.
+
+After deploy, optional end-to-end check: [docs/SMOKE_NEXUS_STACK.md](SMOKE_NEXUS_STACK.md) (`npm run smoke-nexus` from `collector/`). **Collector HTTPS URL ≠ `DATABASE_URL`:** [docs/COLLECTOR_URL_VS_DATABASE_URL.md](COLLECTOR_URL_VS_DATABASE_URL.md).

@@ -260,6 +260,24 @@ async function ensureSchema(client) {
         CREATE INDEX IF NOT EXISTS idx_nexus_friction_org_created
         ON nexus_friction_context (org_id, created_at DESC);
     `);
+
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS gold_standard_vectors (
+            id UUID PRIMARY KEY,
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            fingerprint JSONB NOT NULL,
+            label TEXT NOT NULL,
+            notes TEXT,
+            verified_by TEXT,
+            source_behavior_event_id UUID REFERENCES behavior_events (id) ON DELETE SET NULL,
+            source_friction_context_id UUID REFERENCES nexus_friction_context (id) ON DELETE SET NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_gold_standard_org_created
+        ON gold_standard_vectors (org_id, created_at DESC);
+    `);
 }
 
 /** Normalize email for console allowlist (lowercase, trim). */
@@ -569,6 +587,84 @@ async function listNexusFrictionContext(pool, orgIdUuid, limit) {
     const { rows } = await pool.query(
         `SELECT id, behavior_event_id, session_url, friction_kinds, window_json, created_at
          FROM nexus_friction_context
+         WHERE org_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [orgIdUuid, lim]
+    );
+    return rows;
+}
+
+function validateGoldFingerprint(fp) {
+    if (!Array.isArray(fp) || fp.length !== 16) {
+        return 'fingerprint must be an array of exactly 16 numbers';
+    }
+    for (let i = 0; i < 16; i++) {
+        const n = Number(fp[i]);
+        if (!Number.isFinite(n)) return 'fingerprint entries must be finite numbers';
+    }
+    return null;
+}
+
+/**
+ * Human-verified kinetic fingerprint for Phase 4 centroid / training (NEXUS_PLAN).
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ * @param {{
+ *   fingerprint: number[],
+ *   label: string,
+ *   notes?: string | null,
+ *   verified_by?: string | null,
+ *   source_behavior_event_id?: string | null,
+ *   source_friction_context_id?: string | null,
+ * }} row
+ * @returns {Promise<string>} new row id
+ */
+async function insertGoldStandardVector(pool, orgIdUuid, row) {
+    const fpErr = validateGoldFingerprint(row.fingerprint);
+    if (fpErr) {
+        const e = new Error(fpErr);
+        e.code = 'EINVAL';
+        throw e;
+    }
+    const label = row.label && String(row.label).trim();
+    if (!label || label.length > 256) {
+        const e = new Error('label required (max 256 chars)');
+        e.code = 'EINVAL';
+        throw e;
+    }
+    const notes = row.notes != null ? String(row.notes).slice(0, 4000) : null;
+    const verifiedBy = row.verified_by != null ? String(row.verified_by).trim().slice(0, 320) : null;
+    let beId = null;
+    if (row.source_behavior_event_id && String(row.source_behavior_event_id).trim()) {
+        const c = String(row.source_behavior_event_id).trim();
+        if (UUID_RE.test(c)) beId = c;
+    }
+    let fcId = null;
+    if (row.source_friction_context_id && String(row.source_friction_context_id).trim()) {
+        const c = String(row.source_friction_context_id).trim();
+        if (UUID_RE.test(c)) fcId = c;
+    }
+    const id = crypto.randomUUID();
+    const fpJson = JSON.stringify(row.fingerprint.map(Number));
+    await pool.query(
+        `INSERT INTO gold_standard_vectors (id, org_id, fingerprint, label, notes, verified_by, source_behavior_event_id, source_friction_context_id)
+         VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7, $8)`,
+        [id, orgIdUuid, fpJson, label, notes, verifiedBy, beId, fcId]
+    );
+    return id;
+}
+
+/**
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ * @param {number} limit
+ */
+async function listGoldStandardVectors(pool, orgIdUuid, limit) {
+    const lim = Math.max(1, Math.min(500, Number(limit) || 50));
+    const { rows } = await pool.query(
+        `SELECT id, fingerprint, label, notes, verified_by, source_behavior_event_id, source_friction_context_id, created_at
+         FROM gold_standard_vectors
          WHERE org_id = $1
          ORDER BY created_at DESC
          LIMIT $2`,
@@ -1586,6 +1682,8 @@ module.exports = {
     mergeSnippetRuntimeConfig,
     insertNexusFrictionContext,
     listNexusFrictionContext,
+    insertGoldStandardVector,
+    listGoldStandardVectors,
     createConsoleMagicToken,
     consumeConsoleMagicToken,
     countConsoleMembersForOrg,

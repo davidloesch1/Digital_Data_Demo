@@ -177,10 +177,72 @@
                     <button type="button" class="btn-refresh" id="btn-dash-snapshot-cohort">Snapshot cohort</button>
                 </div>
                 <div class="dash-filter-row">
+                    <label class="dash-filter-label"
+                        >Overseer tag kind<br />
+                        <select id="dash-cluster-tag-kind" class="dash-input" aria-label="Tag kind">
+                            <option value="note">note</option>
+                            <option value="label_pattern">label_pattern</option>
+                            <option value="module">module</option>
+                            <option value="metric">metric</option>
+                            <option value="fs_signal">fs_signal</option>
+                        </select></label
+                    >
+                    <label class="dash-filter-label"
+                        >Overseer label<br /><input
+                            type="text"
+                            id="dash-cluster-tag-value"
+                            class="dash-input dash-input--grow"
+                            placeholder="e.g. Confusion, Comparison"
+                    /></label>
+                    <button type="button" class="btn-refresh" id="btn-dash-cluster-add-tag">Add tag to prototype</button>
+                </div>
+                <p class="card-sub">
+                    Tags persist on the selected <strong>saved prototype</strong> (same dropdown as cohort). See
+                    <code>docs/CLUSTER_TAGS_HITL.md</code> in the repo.
+                </p>
+                <div class="dash-filter-row">
                     <label class="dash-filter-label">Cohort id<br /><input type="text" id="dash-segment-cohort-id" class="dash-input" placeholder="UUID from snapshot response" /></label>
                     <label class="dash-filter-label">Vars (JSON)<br /><input type="text" id="dash-seg-vars" class="dash-input dash-input--grow" placeholder='{"nexus_archetype":"Explorer"}' /></label>
                     <button type="button" class="btn-refresh" id="btn-dash-apply-segmentation">Apply to cohort visitors</button>
                 </div>
+            </div>
+
+            <div class="card card--gold dash-extra-card" id="dash-gold-card">
+                <h3 class="card-heading">Gold standard vectors</h3>
+                <p class="card-sub">
+                    List and save human-verified 16-D fingerprints via collector
+                    <code>GET/POST /internal/v1/orgs/:slug/gold-standard-vectors</code>. Requires
+                    <strong>internal admin token</strong> (sidebar) and org slug (master org dropdown, or override below).
+                    Contract: <code>docs/GOLD_STANDARD_VECTORS.md</code>.
+                </p>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label"
+                        >Org slug override<br /><input
+                            type="text"
+                            id="dash-gold-org-slug"
+                            class="dash-input"
+                            placeholder="e.g. 0002 (if not using master org dropdown)"
+                    /></label>
+                    <button type="button" class="btn-refresh" id="btn-dash-gold-refresh">Refresh list</button>
+                </div>
+                <div class="dash-filter-row">
+                    <label class="dash-filter-label"
+                        >Label<br /><input type="text" id="dash-gold-label" class="dash-input" placeholder="Confusion"
+                    /></label>
+                    <label class="dash-filter-label"
+                        >Notes (optional)<br /><input type="text" id="dash-gold-notes" class="dash-input dash-input--grow"
+                    /></label>
+                    <label class="dash-filter-label"
+                        >Verified by (optional)<br /><input type="text" id="dash-gold-verified-by" class="dash-input"
+                    /></label>
+                </div>
+                <label class="dash-filter-label"
+                    >Fingerprint JSON (exactly 16 numbers)<br /><textarea id="dash-gold-fingerprint-json" rows="3" class="dash-input">[0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.1,0.11,0.12,0.13,0.14,0.15]</textarea></label>
+                <div class="dash-filter-row">
+                    <button type="button" class="btn-refresh" id="btn-dash-gold-save">Save gold row</button>
+                </div>
+                <p id="dash-gold-status" class="fs-upload-status" aria-live="polite"></p>
+                <label class="dash-filter-label">Recent rows (newest first)<pre id="dash-gold-list-pre" class="log" style="margin-top:0.35rem;max-height:220px;overflow:auto;font-size:0.78rem;"></pre></label>
             </div>
 
             <div class="main-grid">

@@ -1,6 +1,6 @@
 # FullStory Activation (Generate Context) — collector proxy
 
-**Plain English:** Your **FullStory API key** must never ship in the browser. The collector exposes **`POST /internal/v1/fullstory/generate-context`** so operators (or Retool) can ask FullStory for **session context formatted for LLMs**, using the same **`INTERNAL_ADMIN_TOKEN`** gate as other internal routes.
+**Plain English:** Your **FullStory API key** must never ship in the browser. The collector exposes **`POST /internal/v1/fullstory/generate-context`** so operators (or Retool) can ask FullStory for **session context formatted for LLMs**, using the same **`INTERNAL_ADMIN_TOKEN`** gate as other internal routes. Retool URL and body patterns: **`docs/RETOOL_NEXUS_COMMAND_DECK.md`**.
 
 ## Prerequisites
 
