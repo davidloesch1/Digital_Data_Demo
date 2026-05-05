@@ -69,7 +69,9 @@ Ship the first version as **documented SQL in-repo** (this file + `scripts/`) be
 
 ## 5. “Rolling window” table (high-friction events)
 
-NEXUS_PLAN calls for storing rolling-window strings for high-friction incidents. Typical approach:
+NEXUS_PLAN calls for storing rolling-window strings for high-friction incidents. **Collector (Postgres):** on **`POST /v1/ingest`**, when `payload.signal_buffer` contains **`CONFUSION`** or **`DWELL`**, a row is appended to **`nexus_friction_context`** (linked to **`behavior_events.id`** unless disabled with **`DISABLE_FRICTION_AUTOTRACK`**). Operators may still **`POST /internal/v1/orgs/:slug/friction-context`** manually.
+
+Typical warehouse follow-up:
 
 - **Batch or streaming job** reads `signal_buffer` / `signal_buffer_json`, scores friction (e.g. presence of `CONFUSION`, `DWELL`, spike in `FLUSH` frequency), and **INSERT**s into `nexus_friction_context (org_id, event_id, session_url, window_json, created_at)` (table name illustrative).
 - Keep payloads **PII-scrubbed** per NEXUS_PLAN principles (no raw `id`/`class` from DOM in buffers today).

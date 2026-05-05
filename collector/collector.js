@@ -412,11 +412,25 @@ app.post('/v1/ingest', async (req, res) => {
     const dnaPackage = { ...req.body };
     dnaPackage.server_timestamp = new Date().toISOString();
     dnaPackage.org_slug = resolved.orgSlug;
+    let behaviorRowId;
     try {
-        await tenantDbApi.insertBehaviorEvent(tenantContext.pool, resolved.orgId, dnaPackage);
+        behaviorRowId = await tenantDbApi.insertBehaviorEvent(tenantContext.pool, resolved.orgId, dnaPackage);
     } catch (e) {
         console.error('insertBehaviorEvent:', e);
         return res.status(500).json({ error: 'Storage error' });
+    }
+    try {
+        const rec = await tenantDbApi.maybeRecordFrictionFromKineticIngest(
+            tenantContext.pool,
+            resolved.orgId,
+            behaviorRowId,
+            dnaPackage
+        );
+        if (rec) {
+            console.log(`📌 v1/ingest | org=${resolved.orgSlug} | friction_context auto-recorded`);
+        }
+    } catch (e) {
+        console.error('maybeRecordFrictionFromKineticIngest:', e.message || e);
     }
     console.log(`📥 v1/ingest | org=${resolved.orgSlug} | label=${dnaPackage.label}`);
     res.status(200).json({ ok: true, stored: true });

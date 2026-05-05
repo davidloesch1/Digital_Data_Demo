@@ -33,7 +33,7 @@ This plan serves as the "source of truth" for the platform's technical and philo
 
 * [ ] **FullStory Indexing:** Ensure all new custom properties are indexed and available in the BigQuery sync.
 * [ ] **The Multi-Tenant View:** Re-create `nexus_dna_discovery` to join Fingerprints with FullStory `pages` and `elements` tables, partitioned by `domain`.
-* [ ] **Contextual Table:** Create a schema to store the "Rolling Window" strings for every high-friction event. *(MVP in Postgres: **`nexus_friction_context`** + **`GET` / `POST /internal/v1/orgs/:slug/friction-context`** — automated scoring / ingest hook TBD.)*
+* [ ] **Contextual Table:** Create a schema to store the "Rolling Window" strings for every high-friction event. *(MVP in Postgres: **`nexus_friction_context`** + **`GET` / `POST /internal/v1/orgs/:slug/friction-context`** + **auto-row on `POST /v1/ingest`** when **`signal_buffer`** contains **CONFUSION** or **DWELL**; opt out with **`DISABLE_FRICTION_AUTOTRACK`**. Further scoring / dedupe TBD.)*
 
 ### Phase 3: The Command Deck (Retool & HITL)
 *Focus: Closing the loop between AI math and human meaning.*

@@ -324,6 +324,7 @@ async function resolvePublishableKey(pool, pepper, rawKey) {
  * @param {import('pg').Pool} pool
  * @param {string} orgIdUuid
  * @param {object} payload
+ * @returns {Promise<string>} new behavior_events row id
  */
 async function insertBehaviorEvent(pool, orgIdUuid, payload) {
     const id = crypto.randomUUID();
@@ -331,6 +332,7 @@ async function insertBehaviorEvent(pool, orgIdUuid, payload) {
         `INSERT INTO behavior_events (id, org_id, payload) VALUES ($1, $2, $3::jsonb)`,
         [id, orgIdUuid, JSON.stringify(payload)]
     );
+    return id;
 }
 
 /**
@@ -573,6 +575,55 @@ async function listNexusFrictionContext(pool, orgIdUuid, limit) {
         [orgIdUuid, lim]
     );
     return rows;
+}
+
+/** Kinds in signal_buffer that trigger auto friction rows on ingest (Phase 2 contextual table). */
+const AUTO_FRICTION_SIGNAL_KINDS = new Set(['CONFUSION', 'DWELL']);
+
+function frictionKindsFromSignalBuffer(buffer) {
+    if (!Array.isArray(buffer)) return [];
+    const found = new Set();
+    for (let i = 0; i < buffer.length; i++) {
+        const e = buffer[i];
+        if (e && typeof e === 'object' && typeof e.kind === 'string' && AUTO_FRICTION_SIGNAL_KINDS.has(e.kind)) {
+            found.add(e.kind);
+        }
+    }
+    return Array.from(found);
+}
+
+/**
+ * If kinetic payload carries high-friction silent signals, append `nexus_friction_context`.
+ * Set DISABLE_FRICTION_AUTOTRACK=1 on the collector to skip.
+ * @returns {Promise<boolean>} true when a row was inserted
+ */
+async function maybeRecordFrictionFromKineticIngest(pool, orgIdUuid, behaviorEventId, payload) {
+    if (!payload || typeof payload !== 'object') return false;
+    const off = String(process.env.DISABLE_FRICTION_AUTOTRACK || '')
+        .trim()
+        .toLowerCase();
+    if (off === '1' || off === 'true' || off === 'yes' || off === 'on') return false;
+    if (payload.type !== 'kinetic') return false;
+    const buf = payload.signal_buffer;
+    const kinds = frictionKindsFromSignalBuffer(buf);
+    if (kinds.length === 0) return false;
+    const sessionUrl = payload.session_url && String(payload.session_url).trim();
+    if (!sessionUrl) return false;
+    const windowJson = {
+        ingested_at: payload.server_timestamp || null,
+        event_id: payload.event_id != null ? String(payload.event_id) : null,
+        label: payload.label != null ? String(payload.label) : null,
+        signal_schema_version:
+            payload.signal_schema_version != null ? Number(payload.signal_schema_version) : null,
+        signal_buffer: Array.isArray(buf) ? buf : [],
+    };
+    await insertNexusFrictionContext(pool, orgIdUuid, {
+        session_url: sessionUrl,
+        window_json: windowJson,
+        friction_kinds: kinds,
+        behavior_event_id: behaviorEventId,
+    });
+    return true;
 }
 
 /**
@@ -1523,6 +1574,7 @@ module.exports = {
     createPoolAndMigrate,
     resolvePublishableKey,
     insertBehaviorEvent,
+    maybeRecordFrictionFromKineticIngest,
     fetchRecentPayloads,
     fetchRecentPayloadsAllOrgs,
     deleteRecentEventsBySessionUrl,
