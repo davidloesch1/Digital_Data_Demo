@@ -240,6 +240,26 @@ async function ensureSchema(client) {
         ALTER TABLE behavior_cluster_tags ADD CONSTRAINT behavior_cluster_tags_tag_kind_check
         CHECK (tag_kind IN ('label_pattern', 'module', 'metric', 'note', 'fs_signal'));
     `).catch(() => {});
+
+    await client.query(`
+        ALTER TABLE organizations ADD COLUMN IF NOT EXISTS snippet_runtime_config JSONB NOT NULL DEFAULT '{}'::jsonb;
+    `);
+
+    await client.query(`
+        CREATE TABLE IF NOT EXISTS nexus_friction_context (
+            id UUID PRIMARY KEY,
+            org_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+            behavior_event_id UUID REFERENCES behavior_events (id) ON DELETE SET NULL,
+            session_url TEXT NOT NULL,
+            friction_kinds TEXT[] NOT NULL DEFAULT '{}',
+            window_json JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+    `);
+    await client.query(`
+        CREATE INDEX IF NOT EXISTS idx_nexus_friction_org_created
+        ON nexus_friction_context (org_id, created_at DESC);
+    `);
 }
 
 /** Normalize email for console allowlist (lowercase, trim). */
@@ -459,15 +479,100 @@ async function listOrganizations(pool) {
     return rows;
 }
 
-/** @returns {Promise<{ id: string; slug: string } | null>} */
+/** @returns {Promise<{ id: string; slug: string; snippet_runtime_config?: object } | null>} */
 async function getOrganizationBySlug(pool, slug) {
     const s = String(slug || '').trim();
     if (!s) return null;
     const { rows } = await pool.query(
-        `SELECT id, slug FROM organizations WHERE lower(slug) = lower($1) LIMIT 1`,
+        `SELECT id, slug, snippet_runtime_config FROM organizations WHERE lower(slug) = lower($1) LIMIT 1`,
         [s]
     );
     return rows[0] || null;
+}
+
+/**
+ * Org-scoped JSON for browser snippet (heuristic thresholds, flushMs, feature toggles).
+ * Same keys as `window.NexusSnippet.heuristics` / `NEXUS_HEURISTICS` (see packages/browser README).
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ * @returns {Promise<Record<string, unknown>>}
+ */
+async function fetchSnippetRuntimeConfig(pool, orgIdUuid) {
+    const { rows } = await pool.query(
+        `SELECT snippet_runtime_config FROM organizations WHERE id = $1`,
+        [orgIdUuid]
+    );
+    if (!rows.length) return {};
+    const c = rows[0].snippet_runtime_config;
+    return c && typeof c === 'object' && !Array.isArray(c) ? c : {};
+}
+
+/**
+ * Shallow-merge `patch` into `organizations.snippet_runtime_config` (JSONB ||).
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ * @param {object} patch
+ */
+async function mergeSnippetRuntimeConfig(pool, orgIdUuid, patch) {
+    const p = patch && typeof patch === 'object' && !Array.isArray(patch) ? patch : {};
+    await pool.query(
+        `UPDATE organizations
+         SET snippet_runtime_config = COALESCE(snippet_runtime_config, '{}'::jsonb) || $2::jsonb
+         WHERE id = $1`,
+        [orgIdUuid, JSON.stringify(p)]
+    );
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Persist a high-friction rolling-window snapshot (NEXUS_PLAN Phase 2 contextual table).
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ * @param {{ session_url: string, window_json: object, friction_kinds?: string[], behavior_event_id?: string | null }} row
+ * @returns {Promise<string>} new row id
+ */
+async function insertNexusFrictionContext(pool, orgIdUuid, row) {
+    const sessionUrl = row.session_url && String(row.session_url).trim();
+    if (!sessionUrl) {
+        const e = new Error('session_url required');
+        e.code = 'EINVAL';
+        throw e;
+    }
+    const wj = row.window_json && typeof row.window_json === 'object' && !Array.isArray(row.window_json) ? row.window_json : {};
+    const kinds = Array.isArray(row.friction_kinds)
+        ? row.friction_kinds.map((k) => String(k)).filter((k) => k.length > 0 && k.length <= 64)
+        : [];
+    let beId = null;
+    if (row.behavior_event_id && String(row.behavior_event_id).trim()) {
+        const cand = String(row.behavior_event_id).trim();
+        if (UUID_RE.test(cand)) beId = cand;
+    }
+    const id = crypto.randomUUID();
+    await pool.query(
+        `INSERT INTO nexus_friction_context (id, org_id, behavior_event_id, session_url, friction_kinds, window_json)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+        [id, orgIdUuid, beId, sessionUrl, kinds, JSON.stringify(wj)]
+    );
+    return id;
+}
+
+/**
+ * @param {import('pg').Pool} pool
+ * @param {string} orgIdUuid
+ * @param {number} limit
+ */
+async function listNexusFrictionContext(pool, orgIdUuid, limit) {
+    const lim = Math.max(1, Math.min(500, Number(limit) || 50));
+    const { rows } = await pool.query(
+        `SELECT id, behavior_event_id, session_url, friction_kinds, window_json, created_at
+         FROM nexus_friction_context
+         WHERE org_id = $1
+         ORDER BY created_at DESC
+         LIMIT $2`,
+        [orgIdUuid, lim]
+    );
+    return rows;
 }
 
 /**
@@ -1425,6 +1530,10 @@ module.exports = {
     revokePublishableKey,
     listOrganizations,
     getOrganizationBySlug,
+    fetchSnippetRuntimeConfig,
+    mergeSnippetRuntimeConfig,
+    insertNexusFrictionContext,
+    listNexusFrictionContext,
     createConsoleMagicToken,
     consumeConsoleMagicToken,
     countConsoleMembersForOrg,

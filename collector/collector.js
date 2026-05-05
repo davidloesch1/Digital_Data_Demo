@@ -143,11 +143,12 @@ app.get('/', (_req, res) => {
     const body = {
         ok: true,
         service: 'nexus-collector',
-        message: 'Use GET /health. Ingest: POST /v1/ingest (or legacy POST /collect if enabled).',
+        message: 'Use GET /health. Ingest: POST /v1/ingest; snippet runtime: GET /v1/config (or legacy POST /collect if enabled).',
         endpoints: {
             health: 'GET /health',
             sdk_snippet: 'GET /sdk/nexus-snippet.js',
             ingest_v1: 'POST /v1/ingest',
+            config_v1: 'GET /v1/config',
             summary_v1: 'GET /v1/summary',
             discard_v1: 'POST /v1/discard',
             collect_legacy: 'POST /collect',
@@ -162,7 +163,7 @@ app.get('/', (_req, res) => {
     ) {
         body.internal_admin_portal = 'GET /internal/admin';
         body.internal_admin_api =
-            'GET /internal/v1/orgs | GET /internal/v1/master-summary | POST /internal/v1/orgs | GET|POST|DELETE /internal/v1/orgs/:slug/console-members | POST /internal/v1/keys/revoke';
+            'GET /internal/v1/orgs | GET /internal/v1/master-summary | POST /internal/v1/orgs | GET|POST|DELETE /internal/v1/orgs/:slug/console-members | GET|PATCH /internal/v1/orgs/:slug/snippet-runtime-config | GET|POST /internal/v1/orgs/:slug/friction-context | POST /internal/v1/keys/revoke';
     }
     if (tenantContext && process.env.CONSOLE_BFF_SECRET && String(process.env.CONSOLE_BFF_SECRET).trim() !== '') {
         body.console_bff =
@@ -520,6 +521,52 @@ app.post('/v1/discard', async (req, res) => {
     res.status(200).json({ ok: true, discarded: removed });
 });
 
+/** Org-scoped snippet runtime config (heuristics, flushMs). Same auth as /v1/ingest. */
+app.get('/v1/config', async (req, res) => {
+    if (!tenantContext) {
+        return res.status(503).json({
+            error: 'Multi-tenant config not configured',
+            hint: 'Set DATABASE_URL and PUBLISHABLE_KEY_PEPPER on the collector.',
+        });
+    }
+    const rawKey = extractPublishableKey(req);
+    if (!rawKey) {
+        return res.status(401).json({
+            error: 'Missing publishable key',
+            hint: 'Use Authorization: Bearer <nx_pub_...> or X-Nexus-Publishable-Key',
+        });
+    }
+    let resolved;
+    try {
+        resolved = await tenantDbApi.resolvePublishableKey(
+            tenantContext.pool,
+            tenantContext.pepper,
+            rawKey
+        );
+    } catch (e) {
+        console.error('resolvePublishableKey:', e);
+        return res.status(500).json({ error: 'Auth lookup failed' });
+    }
+    if (!resolved) {
+        return res.status(401).json({ error: 'Invalid or revoked publishable key' });
+    }
+    let heuristics = {};
+    try {
+        heuristics = await tenantDbApi.fetchSnippetRuntimeConfig(tenantContext.pool, resolved.orgId);
+    } catch (e) {
+        console.error('fetchSnippetRuntimeConfig:', e);
+        return res.status(500).json({ error: 'Config read failed' });
+    }
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.setHeader('X-Org-Slug', resolved.orgSlug);
+    res.status(200).json({
+        ok: true,
+        org_slug: resolved.orgSlug,
+        signal_schema_version: 1,
+        heuristics,
+    });
+});
+
 /** Raw CSV body for FullStory Event Stream imports (10 MB cap). */
 const csvUploadMiddleware = bodyParser.text({
     limit: '10mb',
@@ -649,6 +696,104 @@ function mountInternalAdminRoutes(app) {
         }
     });
 
+    /** Read organizations.snippet_runtime_config (same JSON served by GET /v1/config). */
+    router.get('/orgs/:slug/snippet-runtime-config', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            const cfg = await tenantDbApi.fetchSnippetRuntimeConfig(tenantContext.pool, org.id);
+            res.status(200).json({ org_slug: org.slug, snippet_runtime_config: cfg });
+        } catch (e) {
+            console.error('internal GET snippet-runtime-config:', e.message || e);
+            res.status(500).json({ error: 'Read failed' });
+        }
+    });
+
+    /** JSON-merge into organizations.snippet_runtime_config (served by GET /v1/config). */
+    router.patch('/orgs/:slug/snippet-runtime-config', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        const patch = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+        if (!patch) {
+            return res.status(400).json({ error: 'JSON object body required' });
+        }
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            await tenantDbApi.mergeSnippetRuntimeConfig(tenantContext.pool, org.id, patch);
+            res.status(200).json({ ok: true });
+        } catch (e) {
+            console.error('internal PATCH snippet-runtime-config:', e.message || e);
+            res.status(500).json({ error: 'Update failed' });
+        }
+    });
+
+    /** Append nexus_friction_context row (rolling window / high-friction snapshot). */
+    router.post('/orgs/:slug/friction-context', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
+        if (!body) {
+            return res.status(400).json({ error: 'JSON object body required' });
+        }
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            const id = await tenantDbApi.insertNexusFrictionContext(tenantContext.pool, org.id, {
+                session_url: body.session_url,
+                window_json: body.window_json,
+                friction_kinds: body.friction_kinds,
+                behavior_event_id: body.behavior_event_id,
+            });
+            res.status(201).json({ ok: true, id });
+        } catch (e) {
+            if (e && e.code === 'EINVAL') {
+                return res.status(400).json({ error: e.message || 'Invalid body' });
+            }
+            if (e && e.code === '23503') {
+                return res.status(400).json({ error: 'behavior_event_id not found or wrong org' });
+            }
+            console.error('internal POST friction-context:', e.message || e);
+            res.status(500).json({ error: 'Insert failed' });
+        }
+    });
+
+    router.get('/orgs/:slug/friction-context', async (req, res) => {
+        const slug = req.params && req.params.slug != null ? String(req.params.slug).trim() : '';
+        if (!slug) {
+            return res.status(400).json({ error: 'slug required' });
+        }
+        const limRaw = req.query && req.query.limit;
+        const lim = Math.max(1, Math.min(500, parseInt(String(limRaw || '50'), 10) || 50));
+        try {
+            const org = await tenantDbApi.getOrganizationBySlug(tenantContext.pool, slug);
+            if (!org) {
+                return res.status(404).json({ error: 'Unknown organization' });
+            }
+            const rows = await tenantDbApi.listNexusFrictionContext(tenantContext.pool, org.id, lim);
+            res.setHeader('X-Friction-Limit', String(lim));
+            res.setHeader('X-Friction-Rows', String(rows.length));
+            res.status(200).json({ org_slug: org.slug, rows });
+        } catch (e) {
+            console.error('internal GET friction-context:', e.message || e);
+            res.status(500).json({ error: 'Read failed' });
+        }
+    });
+
     router.post('/orgs', async (req, res) => {
         const slug = req.body && req.body.slug;
         const name = (req.body && req.body.name) || slug;
@@ -712,7 +857,7 @@ function mountInternalAdminRoutes(app) {
 
     app.use('/internal/v1', router);
     console.log(
-        'Collector: internal admin API at /internal/v1/orgs, GET /internal/v1/master-summary, /orgs/:slug/console-members, POST /keys/revoke (INTERNAL_ADMIN_TOKEN)'
+        'Collector: internal admin API at /internal/v1/orgs, GET /internal/v1/master-summary, /orgs/:slug/console-members, GET|PATCH /orgs/:slug/snippet-runtime-config, GET|POST /orgs/:slug/friction-context, POST /keys/revoke (INTERNAL_ADMIN_TOKEN)'
     );
 }
 
@@ -823,7 +968,7 @@ async function start() {
                 process.env.DATABASE_URL,
                 process.env.PUBLISHABLE_KEY_PEPPER || ''
             );
-            console.log('Collector: multi-tenant Postgres enabled (/v1/ingest, /v1/summary, /v1/discard)');
+            console.log('Collector: multi-tenant Postgres enabled (/v1/ingest, GET /v1/config, /v1/summary, /v1/discard)');
             if (envTruthy('DISABLE_LEGACY_FILE_WAREHOUSE')) {
                 console.log('Collector: legacy file routes disabled (DISABLE_LEGACY_FILE_WAREHOUSE)');
             }

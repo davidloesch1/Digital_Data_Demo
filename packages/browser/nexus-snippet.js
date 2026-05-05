@@ -12,7 +12,9 @@
  *   event_name: string (default 'nexus_kinetic_fingerprint', max 250 chars for FS),
  *   heuristics: { hoverLongMs, dwellIdleMs, confusionWindowMs, … } — see NEXUS_PLAN progressive rollout
  * }
- * Optional: window.NEXUS_HEURISTICS — same keys as heuristics; wins over NexusSnippet.heuristics
+ * Optional: window.NEXUS_HEURISTICS — same keys as heuristics; wins over NexusSnippet.heuristics and GET /v1/config
+ * Optional: window.NEXUS_SKIP_RUNTIME_CONFIG = true — skip GET /v1/config (use only inline heuristics)
+ * Optional: window.NEXUS_CONFIG_FETCH_TIMEOUT_MS — max wait before wiring listeners (default 2500)
  * Optional: window.NEXUS_USER_KEY for per-visitor correlation in FS properties.
  */
 (function () {
@@ -62,16 +64,19 @@
     if (cfg.disabled) return;
 
     var dualWrite = Boolean(window.NEXUS_DUAL_WRITE);
-    var flushMs = Math.max(2000, Math.min(60000, Number(cfg.flushMs) || 8000));
+    var cfgFlushMs = Math.max(2000, Math.min(60000, Number(cfg.flushMs) || 8000));
     var label = (cfg.label != null && String(cfg.label).trim()) || "SITE";
     var eventNameDefault = "nexus_kinetic_fingerprint";
 
     var snippetHeur = cfg.heuristics && typeof cfg.heuristics === "object" ? cfg.heuristics : {};
     var winHeur = window.NEXUS_HEURISTICS && typeof window.NEXUS_HEURISTICS === "object" ? window.NEXUS_HEURISTICS : {};
+    /** Populated from GET /v1/config when publishable key + collector origin are set. */
+    var remoteHeur = {};
 
     function heurRaw(key) {
         if (winHeur[key] !== undefined && winHeur[key] !== null) return winHeur[key];
         if (snippetHeur[key] !== undefined && snippetHeur[key] !== null) return snippetHeur[key];
+        if (remoteHeur[key] !== undefined && remoteHeur[key] !== null) return remoteHeur[key];
         return undefined;
     }
 
@@ -102,12 +107,12 @@
     var warnedNoSink = false;
 
     /** NEXUS_PLAN Phase 1 — rolling semantic events (cap via heuristics.signalBufferMax). */
-    var SIGNAL_BUFFER_MAX = Math.floor(heurNum("signalBufferMax", 20, 5, 100));
     var signalBuffer = [];
 
     function pushSignalEvent(rec) {
         signalBuffer.push(rec);
-        while (signalBuffer.length > SIGNAL_BUFFER_MAX) signalBuffer.shift();
+        var cap = Math.floor(heurNum("signalBufferMax", 20, 5, 100));
+        while (signalBuffer.length > cap) signalBuffer.shift();
     }
 
     /** Minimal element description — no id/class (PII risk per NEXUS_PLAN). */
@@ -158,17 +163,6 @@
         };
     }
 
-    var enableHoverLong = heurBool("hoverLongEnabled", true);
-    var enableDwell = heurBool("dwellEnabled", true);
-    var enableConfusion = heurBool("confusionEnabled", true);
-
-    var HOVER_LONG_MS = heurNum("hoverLongMs", 1500, 200, 120000);
-    var DWELL_IDLE_MS = heurNum("dwellIdleMs", 3000, 500, 120000);
-    var CONFUSION_WINDOW_MS = heurNum("confusionWindowMs", 3000, 1000, 60000);
-    var CONFUSION_MIN_PATH_PX = heurNum("confusionMinPathPx", 2000, 100, 500000);
-    var CONFUSION_MIN_FLIPS = Math.floor(heurNum("confusionMinReversals", 3, 1, 50));
-    var CONFUSION_COOLDOWN_MS = heurNum("confusionCooldownMs", 5000, 0, 120000);
-
     var lastPointer = { x: 0, y: 0, t: 0 };
     var hoverLongEl = null;
     var hoverLongTimer = null;
@@ -189,10 +183,11 @@
     }
 
     function scheduleHoverLongCheck() {
-        if (!enableHoverLong) return;
+        if (!heurBool("hoverLongEnabled", true)) return;
         clearHoverLongTimer();
         var anchorEl = hoverLongEl;
         if (!anchorEl) return;
+        var hMs = heurNum("hoverLongMs", 1500, 200, 120000);
         hoverLongTimer = setTimeout(function () {
             hoverLongTimer = null;
             var el2 = null;
@@ -203,18 +198,18 @@
                 pushSignalEvent({
                     kind: "HOVER_LONG",
                     t: Date.now(),
-                    ms: HOVER_LONG_MS,
+                    ms: hMs,
                     target_hint: coarseElementHint(anchorEl),
                 });
             }
-        }, HOVER_LONG_MS);
+        }, hMs);
     }
 
     function checkDwell() {
-        if (!enableDwell) return;
+        if (!heurBool("dwellEnabled", true)) return;
         var now = Date.now();
         if (!dwellEligible) return;
-        if (now - lastActivityTs < DWELL_IDLE_MS) return;
+        if (now - lastActivityTs < heurNum("dwellIdleMs", 3000, 500, 120000)) return;
         dwellEligible = false;
         var w = window.innerWidth || 1;
         var h = window.innerHeight || 1;
@@ -234,15 +229,16 @@
     }
 
     function maybeConfusion() {
-        if (!enableConfusion) return;
+        if (!heurBool("confusionEnabled", true)) return;
         var now = Date.now();
-        if (now - lastConfusionTs < CONFUSION_COOLDOWN_MS) return;
+        if (now - lastConfusionTs < heurNum("confusionCooldownMs", 5000, 0, 120000)) return;
         var n = moves.length;
         if (n < 4) return;
         var i;
         var startIdx = -1;
+        var winMs = heurNum("confusionWindowMs", 3000, 1000, 60000);
         for (i = 0; i < n; i++) {
-            if (now - moves[i].t <= CONFUSION_WINDOW_MS) {
+            if (now - moves[i].t <= winMs) {
                 startIdx = i;
                 break;
             }
@@ -273,14 +269,16 @@
             var dot = v1x * v2x + v1y * v2y;
             if (dot < 0) reversals++;
         }
-        if (path >= CONFUSION_MIN_PATH_PX && reversals >= CONFUSION_MIN_FLIPS) {
+        var minPath = heurNum("confusionMinPathPx", 2000, 100, 500000);
+        var minRev = Math.floor(heurNum("confusionMinReversals", 3, 1, 50));
+        if (path >= minPath && reversals >= minRev) {
             lastConfusionTs = now;
             pushSignalEvent({
                 kind: "CONFUSION",
                 t: now,
                 path_px: Math.round(path),
                 dir_changes: reversals,
-                window_ms: CONFUSION_WINDOW_MS,
+                window_ms: winMs,
             });
         }
     }
@@ -530,7 +528,7 @@
                     });
                     if (moves.length > maxMoves) moves.shift();
 
-                    if (enableHoverLong) {
+                    if (heurBool("hoverLongEnabled", true)) {
                         var el = null;
                         try {
                             el = document.elementFromPoint(lastPointer.x, lastPointer.y);
@@ -557,7 +555,7 @@
                 touchActivity();
                 moves.push({ t: lastPointer.t, x: lastPointer.x, y: lastPointer.y });
                 if (moves.length > maxMoves) moves.shift();
-                if (enableHoverLong) {
+                if (heurBool("hoverLongEnabled", true)) {
                     var el = null;
                     try {
                         el = document.elementFromPoint(lastPointer.x, lastPointer.y);
@@ -588,14 +586,79 @@
         clicks++;
     }
 
-    if (document.readyState === "loading") {
-        document.addEventListener("DOMContentLoaded", wire);
-    } else {
-        wire();
+    function mergeRemoteConfigIntoHeuristics(data) {
+        if (!data || typeof data !== "object") return;
+        var h = data.heuristics;
+        if (!h || typeof h !== "object" || Array.isArray(h)) return;
+        var k;
+        for (k in h) {
+            if (Object.prototype.hasOwnProperty.call(h, k)) remoteHeur[k] = h[k];
+        }
+    }
+
+    function beginCapture() {
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", wire);
+        } else {
+            wire();
+        }
+    }
+
+    function configPath() {
+        var p = window.NEXUS_CONFIG_PATH;
+        if (p != null && String(p).trim() !== "") {
+            var s = String(p).trim();
+            return s.indexOf("/") === 0 ? s : "/" + s;
+        }
+        return "/v1/config";
+    }
+
+    function maybeFetchRuntimeConfigThenRun() {
+        if (!pubStr || !window.NEXUS_COLLECT_BASE) {
+            beginCapture();
+            return;
+        }
+        if (window.NEXUS_SKIP_RUNTIME_CONFIG === true) {
+            beginCapture();
+            return;
+        }
+        var base = String(window.NEXUS_COLLECT_BASE || "").replace(/\/$/, "");
+        var url = base + configPath();
+        var timeoutMs = Math.max(500, Math.min(15000, Number(window.NEXUS_CONFIG_FETCH_TIMEOUT_MS) || 2500));
+        var done = false;
+        function finish() {
+            if (done) return;
+            done = true;
+            beginCapture();
+        }
+        var tid = setTimeout(finish, timeoutMs);
+        if (typeof fetch !== "function") {
+            clearTimeout(tid);
+            finish();
+            return;
+        }
+        fetch(url, {
+            method: "GET",
+            headers: { Authorization: "Bearer " + pubStr },
+            mode: "cors",
+            cache: "no-store",
+        })
+            .then(function (r) {
+                return r.ok ? r.json() : Promise.reject(new Error("config_" + r.status));
+            })
+            .then(function (data) {
+                mergeRemoteConfigIntoHeuristics(data);
+            })
+            .catch(function () {})
+            .then(function () {
+                clearTimeout(tid);
+                finish();
+            });
     }
 
     function wire() {
         lastActivityTs = Date.now();
+        var flushMs = Math.floor(heurNum("flushMs", cfgFlushMs, 2000, 60000));
         document.addEventListener("mousemove", onMove, { passive: true });
         document.addEventListener("wheel", onWheel, { passive: true });
         document.addEventListener("click", onClick, true);
@@ -612,4 +675,6 @@
     }
 
     window.NexusSnippetFlush = flushSend;
+
+    maybeFetchRuntimeConfigThenRun();
 })();

@@ -76,7 +76,7 @@ Customers embed a **lightweight loader** on their properties. The loader:
 
 **Control plane**
 
-- **`GET /v1/config`** — read by snippet/worker; short TTL cache / `ETag` friendly.
+- **`GET /v1/config`** — read by snippet/worker; short TTL cache / `ETag` friendly. *(Shipped in collector: returns `heuristics` JSON from `organizations.snippet_runtime_config`.)*
 - **`PATCH /v1/settings`** (later) — customer admins tune thresholds and naming; auth distinct from publishable key.
 - **Internal-only endpoints** — org lifecycle, key rotation, suspend, plan limits—**not** callable with the publishable snippet key.
 

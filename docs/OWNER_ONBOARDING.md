@@ -69,6 +69,8 @@ Tell them to load this **after** their FullStory snippet (or wherever they load 
 
 **Snippet file:** each collector serves **`GET /sdk/nexus-snippet.js`** (same behavior as **`packages/browser/nexus-snippet.js`** in the repo — keep them in sync). After you create an org in **`/internal/admin`**, the UI fills this block for you.
 
+When **`NEXUS_PUBLISHABLE_KEY`** and **`NEXUS_API_BASE`** (or **`NEXUS_COLLECT_BASE`**) are set, the snippet also calls **`GET …/v1/config`** once at startup (Bearer publishable key) to merge **org-level heuristic thresholds** into defaults. Operators can read/update JSON via **`GET`** / **`PATCH /internal/v1/orgs/:slug/snippet-runtime-config`** (same **`INTERNAL_ADMIN_TOKEN`** as other internal routes). High-friction rolling-window rows: **`POST`** / **`GET /internal/v1/orgs/:slug/friction-context`** (see **`NEXUS_PLAN.md`** Phase 2).
+
 Alternate: host **`packages/browser/nexus-snippet.js`** yourself if you do not want owners loading script from the collector origin — see **`packages/browser/README.md`**.
 
 ### Body — what they should verify

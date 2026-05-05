@@ -4,6 +4,10 @@ Minimal integration: load **FullStory** first, then **`nexus-snippet.js`**. Each
 
 **Collector POST** (`POST /v1/ingest`) is **optional**: set **`window.NEXUS_DUAL_WRITE = true`** and configure **`NEXUS_PUBLISHABLE_KEY`** + **`NEXUS_API_BASE`** / **`NEXUS_COLLECT_BASE`** so the same JSON body is also sent to the warehouse (`signal_buffer` as JSON array, `css_meta` object, plus the same `signal_schema_version`).
 
+**Runtime config** (`GET /v1/config`): if **`NEXUS_PUBLISHABLE_KEY`** and **`NEXUS_COLLECT_BASE`** (or **`NEXUS_API_BASE`**) are set, the snippet **GET**s org **`heuristics`** from the collector (same Bearer key) **before** wiring `mousemove` / timers—max wait **`NEXUS_CONFIG_FETCH_TIMEOUT_MS`** (default 2500), then proceeds with defaults on failure. Set **`window.NEXUS_SKIP_RUNTIME_CONFIG = true`** to skip. Override path with **`NEXUS_CONFIG_PATH`** (default **`/v1/config`**). Merge order: **`NEXUS_HEURISTICS`** > **`NexusSnippet.heuristics`** > **server `heuristics`** > code defaults.
+
+**Friction context (internal):** Postgres table **`nexus_friction_context`** — append/list via **`POST` / `GET /internal/v1/orgs/:slug/friction-context`** (Bearer **`INTERNAL_ADMIN_TOKEN`**); see **`NEXUS_PLAN.md`** Phase 2.
+
 ## Prerequisites (FS-first)
 
 1. **FullStory** recording/snippet on the page **before** `nexus-snippet.js` so `window.FS` exists at flush time.

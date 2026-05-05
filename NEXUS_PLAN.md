@@ -28,9 +28,12 @@ This plan serves as the "source of truth" for the platform's technical and philo
 
 ### Phase 2: The Platinum Schema (BigQuery)
 *Focus: Wiring math to visual reality across multiple domains.*
+
+*Warehouse notes:* SQL sketches and property inventory live in **`docs/BIGQUERY_NEXUS_SIGNALS.md`**. Example BigQuery view sketch: **`scripts/sql/nexus_dna_discovery.example.sql`**. Browser runtime policy is served by **`GET /v1/config`** (collector) and stored per org in **`organizations.snippet_runtime_config`** (**`GET` / `PATCH /internal/v1/orgs/:slug/snippet-runtime-config`**).
+
 * [ ] **FullStory Indexing:** Ensure all new custom properties are indexed and available in the BigQuery sync.
 * [ ] **The Multi-Tenant View:** Re-create `nexus_dna_discovery` to join Fingerprints with FullStory `pages` and `elements` tables, partitioned by `domain`.
-* [ ] **Contextual Table:** Create a schema to store the "Rolling Window" strings for every high-friction event.
+* [ ] **Contextual Table:** Create a schema to store the "Rolling Window" strings for every high-friction event. *(MVP in Postgres: **`nexus_friction_context`** + **`GET` / `POST /internal/v1/orgs/:slug/friction-context`** — automated scoring / ingest hook TBD.)*
 
 ### Phase 3: The Command Deck (Retool & HITL)
 *Focus: Closing the loop between AI math and human meaning.*
