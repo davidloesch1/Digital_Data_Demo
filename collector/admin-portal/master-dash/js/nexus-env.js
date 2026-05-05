@@ -6,6 +6,9 @@
  * Multi-tenant: set window.NEXUS_PUBLISHABLE_KEY (nx_pub_…) before this script (e.g. in js/nexus-env.secrets.js
  * or an inline script) to switch defaults to POST /v1/ingest and GET /v1/summary with Authorization: Bearer.
  * Override paths with NEXUS_INGEST_PATH / NEXUS_SUMMARY_PATH if needed.
+ *
+ * Master dashboard: prefer `window.NEXUS_MASTER_COLLECTOR_ORIGIN` or `window.location.origin` (see inline script
+ * in index.html); avoid shipping a single hardcoded production URL as the only default.
  */
 (function () {
     if (typeof window === "undefined") return;
@@ -21,7 +24,12 @@
         }
         return s.replace(/\/?$/, "");
     }
-    var fallback = "https://gentle-amazement-staging.up.railway.app";
+    var fallback =
+        typeof window.location !== "undefined" &&
+        window.location.origin &&
+        window.location.protocol !== "file:"
+            ? String(window.location.origin).replace(/\/$/, "")
+            : "http://127.0.0.1:3000";
     var single = window.NEXUS_API_BASE;
     var collect =
         window.NEXUS_COLLECT_BASE ||

@@ -1920,6 +1920,16 @@
         return parts.length ? "&" + parts.join("&") : "";
     }
 
+    /** Human-readable range for friction triage shell. */
+    function getDateRangeLabelForFriction() {
+        var sinceEl = $("dash-filter-since");
+        var untilEl = $("dash-filter-until");
+        var a = sinceEl && sinceEl.value ? String(sinceEl.value) : "";
+        var b = untilEl && untilEl.value ? String(untilEl.value) : "";
+        if (!a && !b) return "all rows in current load (no since/until filter)";
+        return (a || "…") + " → " + (b || "…");
+    }
+
     function appendQueryToUrl(baseUrl, extraQs) {
         if (!extraQs) return baseUrl;
         return baseUrl + (baseUrl.indexOf("?") >= 0 ? "" : "?") + extraQs.replace(/^&/, "");
@@ -2798,6 +2808,9 @@
             refreshScopedCharts();
             populatePrototypeOrgSelect([]);
             setStatus(true, "Warehouse reachable · empty");
+            if (window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll) {
+                void window.NexusFrictionTriage.refreshAll();
+            }
             return;
         }
 
@@ -2919,6 +2932,9 @@
                 " warehouse rows" +
                 (MASTER_ORG_SCOPE ? " (all local orgs)" : "")
         );
+        if (window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll) {
+            void window.NexusFrictionTriage.refreshAll();
+        }
     }
 
     function populatePrototypeOrgSelect(rows) {
@@ -3318,6 +3334,54 @@
         if (bgf) bgf.onclick = refreshGoldStandardList;
         var bgs = $("btn-dash-gold-save");
         if (bgs) bgs.onclick = saveGoldStandardFromUi;
+
+        if (window.NexusFrictionTriage) {
+            window.NexusFrictionTriage.init({
+                getToken: getMasterInternalAdminToken,
+                getOrigin: masterInternalApiOrigin,
+                getOrgSlug: getEffectiveOrgSlugForInternal,
+                getRows: function () {
+                    return lastWarehouseRows;
+                },
+                getKineticPoints: function () {
+                    return lastKineticPoints;
+                },
+                getM: function () {
+                    return M;
+                },
+                onFocusSession: function (sid) {
+                    if (!sid) return;
+                    if (globalSessions[sid]) {
+                        selectUser(sid);
+                        return;
+                    }
+                    alert(
+                        "Session #" +
+                            sid +
+                            " is not in the current warehouse load — widen the date filter or click Refresh data."
+                    );
+                },
+                getDomainNeedle: function () {
+                    var d = $("dash-context-domain");
+                    return d && d.value ? String(d.value).trim() : "";
+                },
+                getDateRangeLabel: getDateRangeLabelForFriction,
+            });
+            function refreshFrictionShell() {
+                if (window.NexusFrictionTriage && window.NexusFrictionTriage.refreshAll) {
+                    void window.NexusFrictionTriage.refreshAll();
+                }
+            }
+            var po = $("dash-prototype-org");
+            if (po) po.addEventListener("change", refreshFrictionShell);
+            var gs = $("dash-gold-org-slug");
+            if (gs) gs.addEventListener("change", refreshFrictionShell);
+            var cd = $("dash-context-domain");
+            if (cd) cd.addEventListener("input", refreshFrictionShell);
+            var ce = $("dash-context-env");
+            if (ce) ce.addEventListener("change", refreshFrictionShell);
+            refreshFrictionShell();
+        }
 
         Promise.resolve()
             .then(function () {

@@ -94,6 +94,119 @@
         </aside>
 
         <main class="dash-main">
+            <section class="dash-friction-shell" aria-labelledby="dash-friction-shell-title">
+                <div class="dash-friction-shell__head">
+                    <h2 id="dash-friction-shell-title" class="dash-friction-shell__title">Friction triage</h2>
+                    <p class="dash-friction-shell__sub dash-friction-guided">
+                        Guided view answers: ingest shape, friction signals in the warehouse window, Postgres friction
+                        rows, and a ranked review queue. See <code>docs/MASTER_DASH_REVAMP.md</code> in the repo.
+                    </p>
+                    <div id="dash-contract-banner" class="dash-contract-banner" role="status" hidden></div>
+                </div>
+                <div class="dash-friction-context-row">
+                    <label class="dash-friction-field"
+                        >Domain / site hint<br /><input
+                            type="text"
+                            id="dash-context-domain"
+                            class="dash-input"
+                            placeholder="Substring match on session_url + label (optional)"
+                            autocomplete="off"
+                    /></label>
+                    <label class="dash-friction-field"
+                        >Environment<br /><select id="dash-context-env" class="dash-input" aria-label="Environment label">
+                            <option value="prod">Production</option>
+                            <option value="staging">Staging</option>
+                            <option value="local">Local / lab</option>
+                        </select></label>
+                    <div class="dash-friction-field dash-friction-field--grow">
+                        <span class="dash-friction-field__label">Collector health</span>
+                        <p id="dash-friction-freshness" class="dash-friction-freshness">Checking…</p>
+                        <p id="dash-friction-range-label" class="dash-friction-range-hint"></p>
+                    </div>
+                    <label class="dash-friction-field dash-friction-field--toggle">
+                        <input type="checkbox" id="dash-friction-guided-toggle" checked />
+                        <span>Guided view (hide raw JSON)</span>
+                    </label>
+                </div>
+                <div class="dash-friction-cards">
+                    <div class="dash-friction-card" id="friction-card-schema">
+                        <h3 class="dash-friction-card__title">Ingest / schema (kinetic rows)</h3>
+                        <p id="friction-card-schema-empty" class="dash-friction-card__empty" hidden>No kinetic rows in the current warehouse load.</p>
+                        <dl class="dash-friction-dl">
+                            <dt>Kinetic rows</dt>
+                            <dd id="friction-metric-kinetic">—</dd>
+                            <dt>Missing signal_buffer</dt>
+                            <dd id="friction-metric-missing-buffer">—</dd>
+                            <dt>signal_schema_version</dt>
+                            <dd id="friction-metric-schema-hist">—</dd>
+                        </dl>
+                    </div>
+                    <div class="dash-friction-card">
+                        <h3 class="dash-friction-card__title">Silent signals in window</h3>
+                        <dl class="dash-friction-dl">
+                            <dt>CONFUSION entries</dt>
+                            <dd id="friction-metric-confusion">—</dd>
+                            <dt>DWELL entries</dt>
+                            <dd id="friction-metric-dwell">—</dd>
+                            <dt>Other kinds (counts)</dt>
+                            <dd id="friction-metric-other-kinds" class="dash-friction-mono">—</dd>
+                        </dl>
+                    </div>
+                    <div class="dash-friction-card dash-friction-card--wide">
+                        <h3 class="dash-friction-card__title">Postgres <code>nexus_friction_context</code></h3>
+                        <p class="dash-friction-card__hint dash-friction-guided">
+                            Requires internal token + org slug (master org dropdown or Gold card org override).
+                        </p>
+                        <div class="dash-friction-table-wrap">
+                            <table class="dash-friction-table" aria-label="Friction context rows">
+                                <thead>
+                                    <tr>
+                                        <th>Created</th>
+                                        <th>Kinds</th>
+                                        <th>Session URL</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dash-friction-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="dash-friction-card dash-friction-card--wide">
+                        <h3 class="dash-friction-card__title">Sessions worth reviewing</h3>
+                        <p class="dash-friction-card__hint dash-friction-guided">
+                            Heuristic: friction buffer signals + distance from nearest saved prototype (if loaded).
+                        </p>
+                        <div class="dash-friction-table-wrap">
+                            <table class="dash-friction-table" aria-label="Review queue">
+                                <thead>
+                                    <tr>
+                                        <th>Session</th>
+                                        <th>Score</th>
+                                        <th>Label preview</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dash-review-queue-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="dash-friction-card dash-friction-card--wide">
+                        <h3 class="dash-friction-card__title">Snippet runtime config (read-only)</h3>
+                        <pre id="dash-snippet-runtime-preview" class="dash-snippet-runtime-preview"></pre>
+                    </div>
+                </div>
+                <div id="dash-friction-analyst-panel" class="dash-friction-analyst" hidden>
+                    <label class="dash-friction-field dash-friction-field--block"
+                        >Analyst JSON (same aggregates + API sample)<textarea
+                            id="dash-friction-analyst-json"
+                            class="dash-input dash-friction-analyst__textarea"
+                            rows="10"
+                            readonly
+                        ></textarea>
+                    </label>
+                </div>
+            </section>
+
             <div class="stat-grid">
                 <div class="card card--stat">
                     <div class="label">Kinetic DNA rows</div>
@@ -497,6 +610,7 @@
     <script src="data-cards/reverse-search.js"></script>
     <script src="data-cards/data-model.js"></script>
     <script src="data-cards/radar-archetype.js"></script>
+    <script src="js/friction-triage.js"></script>
     <script src="dashboard.js"></script>
 </body>
 </html>
