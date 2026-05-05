@@ -18,7 +18,7 @@ Incremental revamp of [collector/admin-portal/master-dash/](collector/admin-port
 3. Where is friction concentrated in the current window, and which silent-signal kinds show up?  
 4. Which sessions look worth reviewing first (heuristic: friction signals + prototype uncertainty)?  
 5. Session timeline deep-dive — **slice 2** (shipped: merged kinetic + FullStory table in Friction shell).  
-6. Cluster growth — **later**.  
+6. Cluster growth — **slice 3 (next; see below)**.  
 7. Unified pattern library — **later** (partial today: Gold card + cluster tags).  
 8. Compare week-over-week — **after overview compare**.  
 9. Stakeholder export — **low priority**.
@@ -62,3 +62,23 @@ Until payloads carry a canonical `site_key`, the **Domain / site hint** field fi
 
 - Session timeline card + styles: same [index.html](collector/admin-portal/master-dash/index.html) / [dashboard.css](collector/admin-portal/master-dash/css/dashboard.css)  
 - Merge + render: [collector/admin-portal/master-dash/js/session-timeline-dive.js](collector/admin-portal/master-dash/js/session-timeline-dive.js); `init` / `refresh` from [dashboard.js](collector/admin-portal/master-dash/dashboard.js); analyst field from [friction-triage.js](collector/admin-portal/master-dash/js/friction-triage.js)
+
+## Next slice (3) — cluster growth (job story 6)
+
+**Choice:** Ship **cluster growth** before Library / compare / export — it extends Exploration metrics already on the page and stays warehouse-first.
+
+### Slice 3 — definition of done (draft)
+
+- Operators can see **whether clusters / archetypes are stable or shifting** in the current warehouse window (counts, reassignment signal, or simple growth delta — exact metric TBD in spike).  
+- **Guided** explains the metric; **Analyst** exposes the underlying series or JSON.  
+- Prefer **no new Postgres** unless the spike shows warehouse-only is insufficient.
+
+## Housekeeping — merge and deploy
+
+- Open a **PR from `behavioral_intelligence_roadmap` into `main`** (or merge locally) when ready for production parity.  
+- After merge, confirm **Railway** (or your host) builds the collector image from `main` and that the master-dash static assets are served as expected.
+
+## Explorer copy / UX cleanup (shipped)
+
+- Removed legacy **Challenge module** controls from the behavioral cloud and dimension strips; charts use **all kinetic rows** in the current warehouse load (date range and cloud granularity unchanged).  
+- Warehouse field **`challenge_module`** and **`resolveChallengeModule`** remain for row typing, prototype lanes, and saved prototype metadata; saved prototypes store `filters.challenge_module` as empty unless the API is extended later.

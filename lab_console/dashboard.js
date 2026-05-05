@@ -40,10 +40,8 @@
         "#f97316",
     ];
     const LS_K_KEY = "nexus_dash_k_max";
-    const LS_MODULE_KEY = "nexus_dash_module_filter";
     const LS_GRAN_KEY = "nexus_dash_granularity";
     const LS_DIM_SCOPE_KEY = "nexus_dash_dim_scope";
-    const LS_DIM_CHALLENGE_KEY = "nexus_dash_dim_challenge";
     const MAX_DIM_BARS = 20;
 
     let cloudChart = null;
@@ -86,8 +84,7 @@
     }
 
     /**
-     * Maps warehouse row label to challenge module id (matches data/challenges.json ids).
-     * Kinetic rows only carry `label`; there is no separate module field on POST today.
+     * Derives a stable scenario id from `challenge_module` or `label` prefix heuristics (for lanes / metadata).
      */
     function moduleFromLabel(label) {
         var U = (label || "").toString().trim().toUpperCase();
@@ -193,12 +190,6 @@
                 hint.textContent = "";
             }
         }
-    }
-
-    function getSelectedModuleFilter() {
-        var sel = $("dash-module-filter");
-        if (!sel) return "";
-        return sel.value || "";
     }
 
     function getGranularityMode() {
@@ -799,11 +790,6 @@
         });
     }
 
-    function getDimChallengeFilter() {
-        var sel = $("dim-challenge");
-        return sel ? sel.value || "" : "";
-    }
-
     function truncateLabel(s, maxLen) {
         s = String(s || "");
         if (s.length <= maxLen) return s;
@@ -811,27 +797,19 @@
     }
 
     /**
-     * Session/visitor means (aggregate), or one row per kinetic event (kinetic); optional challenge filter.
+     * Session/visitor means (aggregate), or one row per kinetic event (kinetic).
      * @returns {{ kind: 'aggregate', units: Array, hint: string|null } | { kind: 'kinetic', points: Array, hint: null }}
      */
-    function buildDimensionUnits(allRows, scope, challengeFilter) {
+    function buildDimensionUnits(allRows, scope) {
         if (!M) return { kind: "aggregate", units: [], hint: null };
         var kineticRows = allRows.filter(function (r) {
             return M.isKineticEvent(r) && normalizeFingerprint(r);
         });
-        var cf = challengeFilter !== undefined ? challengeFilter : getDimChallengeFilter();
-        if (cf && cf !== "") {
-            kineticRows = kineticRows.filter(function (r) {
-                return resolveChallengeModule(r) === cf;
-            });
-        }
         if (!kineticRows.length) {
             return {
                 kind: "aggregate",
                 units: [],
-                hint: cf
-                    ? "No kinetic fingerprints for this module—only \"kinetic\" rows appear here, not SPEED_* phase labels. Keyboard-heavy flows used to skip capture when pointer motion was flat; reload and run the lab again to collect new rows."
-                    : "No kinetic fingerprints yet — complete a challenge to populate strips.",
+                hint: "No kinetic fingerprints yet — capture kinetic rows in the lab to populate strips.",
             };
         }
         var i;
@@ -944,11 +922,10 @@
         destroyDimensionCharts();
         var rows = allRows && allRows.length ? allRows : [];
         var scope = getDimScope();
-        var challengeFilter = getDimChallengeFilter();
-        var built = buildDimensionUnits(rows, scope, challengeFilter);
+        var built = buildDimensionUnits(rows, scope);
         var builtGhost =
             ghostRowsOpt && ghostRowsOpt.length && scope === "kinetic" && viewScope.showPopulation
-                ? buildDimensionUnits(ghostRowsOpt, scope, challengeFilter)
+                ? buildDimensionUnits(ghostRowsOpt, scope)
                 : null;
         var gKin = builtGhost && builtGhost.kind === "kinetic" && builtGhost.points ? builtGhost.points : null;
         var caption = $("dim-strip-caption");
@@ -970,17 +947,10 @@
 
         ensureDimensionChartGrid();
 
-        var chLabel =
-            challengeFilter && challengeFilter !== ""
-                ? "challenge “" + challengeFilter + "”"
-                : "any module";
-
         if (caption) {
             if (isKinetic) {
                 caption.textContent =
                     "Kinetic rows · " +
-                    chLabel +
-                    " · " +
                     kinPts.length +
                     " row(s)" +
                     (gKin && gKin.length
@@ -991,8 +961,6 @@
                 var scopeLabel = scope === "user" ? "Visitor means" : "Session means";
                 caption.textContent =
                     scopeLabel +
-                    " · " +
-                    chLabel +
                     " · " +
                     units.length +
                     " unit(s); each chart shows up to " +
@@ -1366,38 +1334,25 @@
         return [];
     }
 
-    function countKineticRows(rows, moduleFilter) {
+    function countKineticRows(rows) {
         if (!M) return 0;
-        var mf = moduleFilter !== undefined ? moduleFilter : getSelectedModuleFilter();
         return rows.filter(function (r) {
-            if (!M.isKineticEvent(r) || !normalizeFingerprint(r)) return false;
-            if (!mf || mf === "") return true;
-            return resolveChallengeModule(r) === mf;
+            return M.isKineticEvent(r) && normalizeFingerprint(r);
         }).length;
     }
 
-    function sessionVisibleForModule(sid, moduleFilter) {
-        var mf = moduleFilter !== undefined ? moduleFilter : getSelectedModuleFilter();
-        if (!mf || mf === "") return true;
-        if (!M) return true;
-        var rows = globalSessions[sid] || [];
-        return rows.some(function (r) {
-            return M.isKineticEvent(r) && normalizeFingerprint(r) && resolveChallengeModule(r) === mf;
-        });
+    /** When a module filter was selected, sessions could be hidden; all sessions in the warehouse load are listed now. */
+    function sessionVisibleForModule(sid) {
+        void sid;
+        return true;
     }
 
     /** Builds scatter points in PCA space + attaches fp for parallel coords. Uses NexusFingerprintViz when available. */
-    function buildKineticPointsPCA(rows, moduleFilter) {
+    function buildKineticPointsPCA(rows) {
         if (!M) return { points: [], pca: { explainedPct: [0, 0], fallback: true }, emptyHint: null };
-        var mf = moduleFilter !== undefined ? moduleFilter : getSelectedModuleFilter();
         var kineticRows = rows.filter(function (r) {
             return M.isKineticEvent(r) && normalizeFingerprint(r);
         });
-        if (mf && mf !== "") {
-            kineticRows = kineticRows.filter(function (r) {
-                return resolveChallengeModule(r) === mf;
-            });
-        }
         if (!kineticRows.length) {
             return { points: [], pca: { explainedPct: [0, 0], fallback: true }, emptyHint: null };
         }
@@ -1680,7 +1635,7 @@
                             display: true,
                             text:
                                 emptyHint ||
-                                "No kinetic fingerprints yet — complete a challenge to populate the cloud.",
+                                "No kinetic fingerprints yet — capture kinetic rows in the lab to populate the cloud.",
                             color: "#94a3b8",
                             font: { size: 13 },
                         },
@@ -1814,7 +1769,7 @@
         $("user-archetype-label").textContent = "Cluster " + (clusterIdx + 1) + " · visitor " + uk;
         $("user-archetype-desc").textContent =
             merged.length +
-            " warehouse row(s) for this visitor across sessions (module filter applies to the chart only).";
+            " warehouse row(s) for this visitor across sessions.";
 
         if (radarCtrl && radarCtrl.update) radarCtrl.update(merged);
         setViewScope({ mode: "user", visitorKey: uk, showPopulation: viewScope.showPopulation });
@@ -1836,7 +1791,7 @@
         var mean = sessionMeanPlane(sid);
         var clusterIdx = mean ? nearestClusterIndex(mean.x, mean.y) : 0;
 
-        var kineticN = countKineticRows(userEvents, getSelectedModuleFilter());
+        var kineticN = countKineticRows(userEvents);
         var labels = userEvents
             .map(function (e) {
                 return e.label;
@@ -1861,19 +1816,18 @@
     function renderSessionList() {
         var container = $("session-list");
         container.innerHTML = "";
-        var mf = getSelectedModuleFilter();
         var keys = Object.keys(globalSessions).filter(function (sid) {
-            return sessionVisibleForModule(sid, mf);
+            return sessionVisibleForModule(sid);
         });
         keys.sort(function (a, b) {
-            var ka = countKineticRows(globalSessions[a], mf);
-            var kb = countKineticRows(globalSessions[b], mf);
+            var ka = countKineticRows(globalSessions[a]);
+            var kb = countKineticRows(globalSessions[b]);
             if (kb !== ka) return kb - ka;
             return String(a).localeCompare(String(b));
         });
         keys.forEach(function (sid) {
             var rows = globalSessions[sid];
-            var k = countKineticRows(rows, mf);
+            var k = countKineticRows(rows);
             var div = document.createElement("div");
             var activeSession = selectedSid && sid === selectedSid;
             var activeVisitor =
@@ -2244,9 +2198,8 @@
             });
             return;
         }
-        var mf = getSelectedModuleFilter();
         NexusClusterPrototypes.enrichPoints(lastKineticPoints, behaviorPrototypes, {
-            moduleFilter: mf,
+            moduleFilter: "",
             k: getDesiredClusterCount(),
             sessionMetricsBySid: fsSessionMetricsBySid,
         });
@@ -2451,7 +2404,7 @@
             centroid: centroid,
             match_threshold: 0.85,
             filters: {
-                challenge_module: getSelectedModuleFilter() || "",
+                challenge_module: "",
                 granularity: getGranularityMode() || "",
                 k: getDesiredClusterCount(),
             },
@@ -2653,14 +2606,13 @@
 
         lastWarehouseRows = data;
         globalSessions = groupSessions(data);
-        var mf = getSelectedModuleFilter();
-        var built = buildKineticPointsPCA(data, mf);
+        var built = buildKineticPointsPCA(data);
         lastKineticPoints = built.points;
         var pca = built.pca;
 
         $("stat-kinetic").textContent = String(lastKineticPoints.length);
         var visibleSessions = Object.keys(globalSessions).filter(function (sid) {
-            return sessionVisibleForModule(sid, mf);
+            return sessionVisibleForModule(sid);
         });
         $("stat-sessions").textContent = String(visibleSessions.length);
         $("stat-integrity").textContent = computeIntegrity(data, lastKineticPoints);
@@ -2719,17 +2671,17 @@
                 selectUserByVisitorKey(selectedUserKey);
                 return;
             }
-            if (selectedSid && globalSessions[selectedSid] && sessionVisibleForModule(selectedSid, mf)) {
+            if (selectedSid && globalSessions[selectedSid] && sessionVisibleForModule(selectedSid)) {
                 selectUser(selectedSid);
                 return;
             }
             selectedUserKey = null;
             var sorted = Object.keys(globalSessions).filter(function (sid) {
-                return sessionVisibleForModule(sid, mf);
+                return sessionVisibleForModule(sid);
             });
             sorted.sort(function (a, b) {
-                var ka = countKineticRows(globalSessions[a], mf);
-                var kb = countKineticRows(globalSessions[b], mf);
+                var ka = countKineticRows(globalSessions[a]);
+                var kb = countKineticRows(globalSessions[b]);
                 if (kb !== ka) return kb - ka;
                 return String(a).localeCompare(String(b));
             });
@@ -2818,100 +2770,6 @@
                     : "Cannot reach warehouse API (try Log in for hosted console, or collector + publishable key for local)."
             );
         }
-    }
-
-    function populateModuleSelect(challenges) {
-        var sel = $("dash-module-filter");
-        if (!sel) return;
-        var preserve = sel.value;
-        sel.innerHTML = "";
-        var optAll = document.createElement("option");
-        optAll.value = "";
-        optAll.textContent = "All modules";
-        sel.appendChild(optAll);
-        (challenges || []).forEach(function (c) {
-            var o = document.createElement("option");
-            o.value = c.id;
-            o.textContent = c.title || c.id;
-            sel.appendChild(o);
-        });
-        var hubOpt = document.createElement("option");
-        hubOpt.value = "archetype-lab";
-        hubOpt.textContent = "Challenge hub";
-        sel.appendChild(hubOpt);
-        var demoOpt = document.createElement("option");
-        demoOpt.value = "demo";
-        demoOpt.textContent = "Archetype lab (demo.html)";
-        sel.appendChild(demoOpt);
-        var un = document.createElement("option");
-        un.value = "unknown";
-        un.textContent = "Other / unmatched label";
-        sel.appendChild(un);
-        var opts = sel.options;
-        var i;
-        for (i = 0; i < opts.length; i++) {
-            if (opts[i].value === preserve) {
-                sel.value = preserve;
-                return;
-            }
-        }
-        var sv = localStorage.getItem(LS_MODULE_KEY);
-        if (sv) {
-            for (i = 0; i < opts.length; i++) {
-                if (opts[i].value === sv) {
-                    sel.value = sv;
-                    return;
-                }
-            }
-        }
-        sel.value = "";
-    }
-
-    function populateDimChallengeSelect(challenges) {
-        var sel = $("dim-challenge");
-        if (!sel) return;
-        var preserve = sel.value;
-        sel.innerHTML = "";
-        var optAny = document.createElement("option");
-        optAny.value = "";
-        optAny.textContent = "Any module";
-        sel.appendChild(optAny);
-        (challenges || []).forEach(function (c) {
-            var o = document.createElement("option");
-            o.value = c.id;
-            o.textContent = c.title || c.id;
-            sel.appendChild(o);
-        });
-        var hubOptDim = document.createElement("option");
-        hubOptDim.value = "archetype-lab";
-        hubOptDim.textContent = "Challenge hub";
-        sel.appendChild(hubOptDim);
-        var demoOpt = document.createElement("option");
-        demoOpt.value = "demo";
-        demoOpt.textContent = "Archetype lab (demo.html)";
-        sel.appendChild(demoOpt);
-        var un = document.createElement("option");
-        un.value = "unknown";
-        un.textContent = "Other / unmatched label";
-        sel.appendChild(un);
-        var opts = sel.options;
-        var i;
-        for (i = 0; i < opts.length; i++) {
-            if (opts[i].value === preserve) {
-                sel.value = preserve;
-                return;
-            }
-        }
-        var sv = localStorage.getItem(LS_DIM_CHALLENGE_KEY);
-        if (sv !== null && sv !== undefined && sv !== "") {
-            for (i = 0; i < opts.length; i++) {
-                if (opts[i].value === sv) {
-                    sel.value = sv;
-                    return;
-                }
-            }
-        }
-        sel.value = "";
     }
 
     function setupSegmentationBanner() {
@@ -3056,14 +2914,6 @@
             });
         }
 
-        var dimChallengeEl = $("dim-challenge");
-        if (dimChallengeEl) {
-            dimChallengeEl.addEventListener("change", function () {
-                localStorage.setItem(LS_DIM_CHALLENGE_KEY, dimChallengeEl.value);
-                refreshScopedCharts();
-            });
-        }
-
         var scopePop = $("scope-show-population");
         if (scopePop) {
             scopePop.addEventListener("change", function () {
@@ -3169,27 +3019,6 @@
             })
             .catch(function () {})
             .then(function () {
-                return fetch("data/challenges.json");
-            })
-            .then(function (r) {
-                return r.json();
-            })
-            .then(function (d) {
-                populateModuleSelect(d.challenges || []);
-                populateDimChallengeSelect(d.challenges || []);
-            })
-            .catch(function () {
-                populateModuleSelect([]);
-                populateDimChallengeSelect([]);
-            })
-            .then(function () {
-                var sel = $("dash-module-filter");
-                if (sel) {
-                    sel.addEventListener("change", function () {
-                        localStorage.setItem(LS_MODULE_KEY, sel.value);
-                        fetchData();
-                    });
-                }
                 fetchData();
             });
 

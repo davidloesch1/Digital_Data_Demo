@@ -102,13 +102,6 @@
                             </details>
                             <div class="dash-filters">
                                 <div class="dash-cluster-control">
-                                    <label for="dash-module-filter" class="dash-cluster-control__label">Challenge module</label>
-                                    <select id="dash-module-filter" class="dash-module-select" aria-label="Filter by challenge module">
-                                        <option value="">All modules</option>
-                                    </select>
-                                    <p class="dash-module-hint">New captures include <code>challenge_module</code> from the lab page. Older rows are matched by <code>label</code> prefix (e.g. <code>SR_*</code>, <code>SPEED_*</code>). Rows that don’t match are omitted or grouped under Other.</p>
-                                </div>
-                                <div class="dash-cluster-control">
                                     <label for="dash-granularity" class="dash-cluster-control__label">Cloud points</label>
                                     <select id="dash-granularity" class="dash-module-select" aria-label="Aggregate behavioral cloud by unit">
                                         <option value="kinetic">Per kinetic row</option>
@@ -132,7 +125,7 @@
                     </div>
                     <div id="cluster-color-legend" class="cluster-color-legend" aria-label="Cluster colors"></div>
                     <p class="explainer">
-                        <strong>How to read it:</strong> Optionally narrow rows by <strong>challenge module</strong> (derived from labels) and choose whether each dot is a kinetic row, a session mean, or a visitor mean. K-means runs in the PCA plane on that subset. Colors identify clusters (same order as the swatches). Click a dot or a session to highlight paths and update the radar. When FullStory was active during capture, use <strong>Open in FullStory</strong> beside the radar to jump to that replay moment.
+                        <strong>How to read it:</strong> Choose whether each dot is a kinetic row, a session mean, or a visitor mean. K-means runs in the PCA plane on all kinetic fingerprints in the current warehouse load (respecting your date filters). Colors identify clusters (same order as the swatches). Click a dot or a session to highlight paths and update the radar. When FullStory was active during capture, use <strong>Open in FullStory</strong> beside the radar to jump to that replay moment.
                     </p>
                 </div>
 
@@ -184,7 +177,7 @@
                         <div class="label">Embedding dimensions</div>
                         <h2 class="card-heading">Per-dimension strip charts</h2>
                         <p class="card-sub">
-                            Sixteen charts—one per fingerprint coordinate <strong>0–15</strong>. Use <strong>session</strong> or <strong>visitor</strong> means (horizontal bars), or <strong>per kinetic row</strong> (scatter: one dot per row, color = FullStory session). Narrow by challenge module or pool <strong>Any module</strong>.
+                            Sixteen charts—one per fingerprint coordinate <strong>0–15</strong>. Use <strong>session</strong> or <strong>visitor</strong> means (horizontal bars), or <strong>per kinetic row</strong> (scatter: one dot per row, color = FullStory session). Strips use the same kinetic rows as the rest of the dashboard for the current warehouse load.
                         </p>
                         <div class="dash-filters dash-filters--dim-strip">
                             <div class="dash-cluster-control">
@@ -195,13 +188,6 @@
                                     <option value="kinetic">Per kinetic row</option>
                                 </select>
                                 <p class="dash-module-hint">Independent from the behavioral cloud’s “Cloud points” control.</p>
-                            </div>
-                            <div class="dash-cluster-control">
-                                <label for="dim-challenge" class="dash-cluster-control__label">Challenge</label>
-                                <select id="dim-challenge" class="dash-module-select" aria-label="Filter dimension strips by challenge module">
-                                    <option value="">Any module</option>
-                                </select>
-                                <p class="dash-module-hint">Only kinetic rows matching this module feed the means (or all modules when Any).</p>
                             </div>
                         </div>
                         <p id="dim-strip-caption" class="card-sub card-sub--accent" aria-live="polite"></p>
@@ -240,7 +226,7 @@
                 <section class="dash-modal__section" aria-labelledby="dash-info-h-pipeline">
                     <h3 id="dash-info-h-pipeline" class="dash-modal__h">1 · From sessions to fingerprints</h3>
                     <p>
-                        In the lab, FullStory captures interaction bundles (pointer moves, scrolls, etc.). A web worker normalizes those events into short motion features, runs them through a trained sequence model, and emits a <strong>16-number vector</strong> (the fingerprint) when movement energy crosses a threshold and a challenge phase label is active.
+                        In the lab, FullStory captures interaction bundles (pointer moves, scrolls, etc.). A web worker normalizes those events into short motion features, runs them through a trained sequence model, and emits a <strong>16-number vector</strong> (the fingerprint) when movement energy crosses a threshold and an instrumented task phase is active.
                     </p>
                     <p>
                         Each capture is stored in the collector database per org. This master view merges recent rows across tenants (see <strong>Local master · all orgs</strong> above). The dashboard does not recompute embeddings; it <strong>visualizes what was stored</strong>.
@@ -250,7 +236,7 @@
                 <section class="dash-modal__section" aria-labelledby="dash-info-h-feed">
                     <h3 id="dash-info-h-feed" class="dash-modal__h">2 · How fingerprints feed these charts</h3>
                     <ul class="dash-modal__list">
-                        <li><strong>Behavioral cloud</strong> — Uses kinetic rows only. Your filters choose which rows enter the analysis. Optionally rows are averaged <em>per session</em> or <em>per visitor</em> before clustering. <strong>PCA</strong> projects the 16-D vectors onto two axes (PC1 / PC2) so points can be plotted; <strong>k-means</strong> assigns cluster colors in that same plane.</li>
+                        <li><strong>Behavioral cloud</strong> — Uses kinetic rows only (date filters apply). Optionally rows are averaged <em>per session</em> or <em>per visitor</em> before clustering. <strong>PCA</strong> projects the 16-D vectors onto two axes (PC1 / PC2) so points can be plotted; <strong>k-means</strong> assigns cluster colors in that same plane.</li>
                         <li><strong>Session radar</strong> — Summarizes the <strong>selected session</strong> using kinetic rows (aggregated signal shape), so you can compare “persona” intensity across a few interpretive dimensions.</li>
                         <li><strong>Parallel coordinates</strong> — Draws the <strong>full 16 dimensions</strong> per kinetic row (min–max scaled in the current warehouse), so you see shape beyond what PCA compresses.</li>
                         <li><strong>Dimension strips</strong> — One small chart per fingerprint coordinate (0–15). You can view session means, visitor means, or raw per-row values depending on the Units control.</li>
