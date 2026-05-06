@@ -3038,7 +3038,7 @@
                 await fetchBehaviorPrototypesList();
                 setStatus(
                     false,
-                    "Select an organization, optional Since / Until and Max rows, then click Refresh data."
+                    "Select an organization in the top bar, optional Since / Until and Max rows, then click Refresh data."
                 );
                 return;
             }
@@ -3439,7 +3439,7 @@
                         }
                         setStatus(
                             false,
-                            "Select an organization, optional Since / Until and Max rows, then click Apply / refresh warehouse (or Refresh data in the header)."
+                            "Select an organization in the top bar, optional Since / Until and Max rows, then click Apply warehouse or Refresh data."
                         );
                     });
                 }

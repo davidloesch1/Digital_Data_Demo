@@ -24,6 +24,93 @@ body {
     border-bottom: 1px solid var(--border);
     background: rgba(15, 23, 42, 0.95);
 }
+body.dash-page--master .dash-topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 12px 24px 10px;
+}
+.dash-topbar__row-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    width: 100%;
+}
+.dash-master-top-scope {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 14px;
+    margin-top: 10px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+}
+.dash-master-top-scope[hidden] {
+    display: none !important;
+}
+.dash-master-top-scope__lead {
+    flex: 1 1 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 12px;
+    margin-bottom: 2px;
+}
+.dash-master-top-scope__title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+}
+.dash-master-top-scope__hint {
+    font-size: 0.75rem;
+    color: var(--muted);
+    opacity: 0.95;
+}
+.dash-master-top-scope__field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.dash-master-top-scope__label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    white-space: nowrap;
+}
+.dash-master-top-scope__input {
+    min-height: 34px;
+    padding: 0.35rem 0.45rem;
+    font-size: 0.8rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(15, 23, 42, 0.9);
+    color: var(--text);
+    font-family: inherit;
+}
+.dash-master-top-scope__input--org {
+    min-width: 10rem;
+    max-width: 16rem;
+}
+.dash-master-top-scope__input--limit {
+    width: 5rem;
+    max-width: 100%;
+}
+.dash-master-top-scope__actions {
+    display: flex;
+    align-items: flex-end;
+    padding-bottom: 1px;
+}
+.btn-refresh--top-scope {
+    white-space: nowrap;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.8rem;
+}
 .dash-topbar__brand {
     font-weight: 700;
     letter-spacing: -0.02em;
@@ -57,7 +144,7 @@ body {
     font-family: inherit;
     font-size: 0.85rem;
 }
-/* Local master dashboard loads all orgs via /local/v1/master-summary — JWT org switcher does not apply */
+/* Master dashboard (hosted + local lab): JWT org switcher hidden — warehouse org is the top-bar scope control */
 .dash-page--master #dash-org-switch-wrap {
     display: none !important;
 }
@@ -623,7 +710,11 @@ main > h1 {
     margin-top: 4px;
 }
 @media (max-width: 960px) {
-    .dash-topbar {
+    body:not(.dash-page--master) .dash-topbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    body.dash-page--master .dash-topbar__row-main {
         flex-direction: column;
         align-items: flex-start;
     }

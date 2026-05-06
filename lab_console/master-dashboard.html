@@ -33,25 +33,64 @@
 <body class="dash-page dash-page--master">
 
     <header class="dash-topbar" role="banner">
-        <div class="dash-topbar__brand">Nexus<span class="text-primary">Console</span> <span class="dash-master-badge">Local master</span></div>
-        <div id="dash-segment-banner" class="dash-segment-banner" hidden>
-            <span class="dash-segment-banner__label">Segmentation</span>
-            <span id="dash-segment-banner-text" class="dash-segment-banner__text"></span>
-            <a href="segmentation.html" class="dash-segment-banner__link">Edit</a>
-        </div>
-        <nav class="dash-topbar__actions" aria-label="Dashboard navigation">
-            <div id="dash-org-switch-wrap" class="dash-org-switch" hidden>
-                <label class="dash-org-switch__label" for="dash-org-switch">Organization</label>
-                <select id="dash-org-switch" class="dash-org-switch__select" aria-label="Active organization"></select>
+        <div class="dash-topbar__row-main">
+            <div class="dash-topbar__brand">Nexus<span class="text-primary">Console</span> <span class="dash-master-badge">Local master</span></div>
+            <div id="dash-segment-banner" class="dash-segment-banner" hidden>
+                <span class="dash-segment-banner__label">Segmentation</span>
+                <span id="dash-segment-banner-text" class="dash-segment-banner__text"></span>
+                <a href="segmentation.html" class="dash-segment-banner__link">Edit</a>
             </div>
-            <a class="dash-nav-link" href="console/index.html">Console home</a>
-            <a class="dash-nav-link" href="segmentation.html">Segmentation</a>
-            <a class="dash-nav-link" href="/api/auth/logout">Log out</a>
-            <button type="button" class="btn-dash-info" id="btn-dash-how-it-works" aria-haspopup="dialog" aria-controls="dash-info-modal">
-                How this works
-            </button>
-            <button type="button" class="btn-refresh btn-refresh--top" id="btn-refresh-cloud">Refresh data</button>
-        </nav>
+            <nav class="dash-topbar__actions" aria-label="Dashboard navigation">
+                <div id="dash-org-switch-wrap" class="dash-org-switch" hidden>
+                    <label class="dash-org-switch__label" for="dash-org-switch">Organization</label>
+                    <select id="dash-org-switch" class="dash-org-switch__select" aria-label="Active organization"></select>
+                </div>
+                <a class="dash-nav-link" href="console/index.html">Console home</a>
+                <a class="dash-nav-link" href="segmentation.html">Segmentation</a>
+                <a class="dash-nav-link" href="/api/auth/logout">Log out</a>
+                <button type="button" class="btn-dash-info" id="btn-dash-how-it-works" aria-haspopup="dialog" aria-controls="dash-info-modal">
+                    How this works
+                </button>
+                <button type="button" class="btn-refresh btn-refresh--top" id="btn-refresh-cloud">Refresh data</button>
+            </nav>
+        </div>
+        <div class="dash-master-top-scope" id="dash-prototype-org-row" hidden>
+            <div class="dash-master-top-scope__lead">
+                <span class="dash-master-top-scope__title">Warehouse scope</span>
+                <span class="dash-master-top-scope__hint">Pick org first, then optional time window and row cap.</span>
+            </div>
+            <div class="dash-master-top-scope__field">
+                <label class="dash-master-top-scope__label" for="dash-prototype-org">Organization</label>
+                <select
+                    id="dash-prototype-org"
+                    class="dash-input dash-master-top-scope__input dash-master-top-scope__input--org"
+                    aria-label="Organization for warehouse load"
+                ></select>
+            </div>
+            <div class="dash-master-top-scope__field">
+                <label class="dash-master-top-scope__label" for="dash-filter-since">Since</label>
+                <input type="datetime-local" id="dash-filter-since" class="dash-input dash-master-top-scope__input" />
+            </div>
+            <div class="dash-master-top-scope__field">
+                <label class="dash-master-top-scope__label" for="dash-filter-until">Until</label>
+                <input type="datetime-local" id="dash-filter-until" class="dash-input dash-master-top-scope__input" />
+            </div>
+            <div class="dash-master-top-scope__field">
+                <label class="dash-master-top-scope__label" for="dash-summary-limit">Max rows</label>
+                <input
+                    type="number"
+                    id="dash-summary-limit"
+                    class="dash-input dash-master-top-scope__input dash-master-top-scope__input--limit"
+                    min="1"
+                    max="5000"
+                    step="1"
+                    value="1000"
+                />
+            </div>
+            <div class="dash-master-top-scope__actions">
+                <button type="button" class="btn-refresh btn-refresh--top-scope" id="dash-filter-apply">Apply warehouse</button>
+            </div>
+        </div>
     </header>
 
     <div class="dash-shell">
@@ -81,38 +120,6 @@
         </aside>
 
         <main class="dash-main">
-            <div class="card card--filters dash-extra-card" style="margin-bottom: 1.25rem">
-                <h3 class="card-heading">Warehouse load: org, range, limit</h3>
-                <p class="card-sub">
-                    Choose an <strong>organization</strong>, optional <code>since</code>/<code>until</code>, and
-                    <strong>max rows</strong> for <code>GET /local/v1/master-summary?org_slug=…</code> (newest first in
-                    the window). Save the internal token in the sidebar to populate the org list.
-                </p>
-                <div class="dash-filter-row" id="dash-prototype-org-row" hidden>
-                    <label class="dash-filter-label"
-                        >Organization<br /><select
-                            id="dash-prototype-org"
-                            class="dash-input"
-                            aria-label="Organization for warehouse load"
-                        ></select>
-                    </label>
-                </div>
-                <div class="dash-filter-row">
-                    <label class="dash-filter-label">Since<br /><input type="datetime-local" id="dash-filter-since" class="dash-input" /></label>
-                    <label class="dash-filter-label">Until<br /><input type="datetime-local" id="dash-filter-until" class="dash-input" /></label>
-                    <label class="dash-filter-label"
-                        >Max rows<br /><input
-                            type="number"
-                            id="dash-summary-limit"
-                            class="dash-input"
-                            min="1"
-                            max="5000"
-                            step="1"
-                            value="1000"
-                    /></label>
-                    <button type="button" class="btn-refresh" id="dash-filter-apply">Apply / refresh warehouse</button>
-                </div>
-            </div>
             <div class="stat-grid">
                 <div class="card card--stat">
                     <div class="label">Kinetic DNA rows</div>
